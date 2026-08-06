@@ -88,17 +88,28 @@ private class CameraHost(context: Context) : FrameLayout(context) {
     }
 
     private fun takePhoto() {
-        val capture = imageCapture ?: return send(6, "Camera is not ready")
+        val capture = imageCapture ?: run {
+            send(6, "Camera is not ready")
+            return
+        }
         val file = File(context.cacheDir, "pam-camera-${System.currentTimeMillis()}.jpg")
         capture.takePicture(ImageCapture.OutputFileOptions.Builder(file).build(), executor, object : ImageCapture.OnImageSavedCallback {
-            override fun onImageSaved(result: ImageCapture.OutputFileResults) = send(2, path=file.absolutePath, mime="image/jpeg")
-            override fun onError(error: ImageCaptureException) = send(6, error.message.orEmpty())
+            override fun onImageSaved(result: ImageCapture.OutputFileResults) {
+                send(2, path=file.absolutePath, mime="image/jpeg")
+            }
+
+            override fun onError(error: ImageCaptureException) {
+                send(6, error.message.orEmpty())
+            }
         })
     }
 
     private fun startRecording() {
         if (recording != null) return
-        val output = videoCapture?.output ?: return send(6, "Camera is not ready")
+        val output = videoCapture?.output ?: run {
+            send(6, "Camera is not ready")
+            return
+        }
         val file = File(context.cacheDir, "pam-camera-${System.currentTimeMillis()}.mp4")
         var pending: PendingRecording = output.prepareRecording(context, FileOutputOptions.Builder(file).build())
         if (audioEnabled && ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) pending = pending.withAudioEnabled()

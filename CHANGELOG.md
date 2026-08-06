@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1 - 2026-08-05
+
+- Fix CameraX callback return types so embedded camera hosts compile with the
+  Kotlin toolchain shipped by PAM Native.
+
 ## 0.2.0 - 2026-08-05
 
 - Add a typed embedded camera view with native preview, front/back lens,
