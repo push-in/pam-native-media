@@ -1,0 +1,36 @@
+import AVFoundation
+import Foundation
+import PamNative
+import UIKit
+
+public final class CameraViewFactory:NativeViewFactory,@unchecked Sendable{
+    public init(){}
+    public func create(context:AnyObject?,emit:@escaping(Data)->Void)->UIView{CameraPreview(emit:emit)}
+    public func update(view:UIView,properties:[String:WireValue]){(view as? CameraPreview)?.update(properties)}
+    public func release(view:UIView){(view as? CameraPreview)?.releaseCamera()}
+}
+
+private final class CameraPreview:UIView,AVCapturePhotoCaptureDelegate,AVCaptureFileOutputRecordingDelegate,@unchecked Sendable{
+    private let emit:(Data)->Void;private let session=AVCaptureSession();private let queue=DispatchQueue(label:"dev.pam.media.camera",qos:.userInitiated);private lazy var preview=AVCaptureVideoPreviewLayer(session:session);private let photos=AVCapturePhotoOutput();private let movies=AVCaptureMovieFileOutput()
+    private var facing:Int64=1;private var flash:Int64=1;private var enabled=true;private var audioEnabled=true;private var captureRevision:Int64=0;private var recordRevision:Int64=0;private var stopRevision:Int64=0;private var maxDuration:Int64=60;private var configured=false;private var recordingStartedAt=Date()
+    init(emit:@escaping(Data)->Void){self.emit=emit;super.init(frame:.zero);preview.videoGravity = .resizeAspectFill;layer.addSublayer(preview);authorize()}
+    required init?(coder:NSCoder){nil}
+    override func layoutSubviews(){super.layoutSubviews();preview.frame=bounds}
+    func update(_ v:[String:WireValue]){let nextFacing=v.integer("facing",1);let nextCapture=v.integer("captureRevision",0);let nextRecord=v.integer("recordRevision",0);let nextStop=v.integer("stopRevision",0);enabled=v.flag("enabled",true);audioEnabled=v.flag("audioEnabled",true);flash=v.integer("flashMode",1);maxDuration=max(1,min(600,v.integer("maxDurationSeconds",60)));if nextFacing != facing{facing=nextFacing;if configured{queue.async{self.configure()}}};if nextCapture>captureRevision{captureRevision=nextCapture;queue.async{self.photo()}};if nextRecord>recordRevision{recordRevision=nextRecord;queue.async{self.startRecording()}};if nextStop>stopRevision{stopRevision=nextStop;queue.async{self.stopRecording()}}}
+    private func authorize(){switch AVCaptureDevice.authorizationStatus(for:.video){case.authorized:queue.async{self.configure()};case.notDetermined:AVCaptureDevice.requestAccess(for:.video){granted in if granted{self.queue.async{self.configure()}}else{self.send(["event":.integer(5),"message":.text("Camera permission was denied")])}};default:send(["event":.integer(5),"message":.text("Camera permission is required")])}}
+    private func configure(){if session.isRunning{session.stopRunning()};session.beginConfiguration();session.inputs.forEach(session.removeInput);session.outputs.forEach(session.removeOutput);session.sessionPreset = .high;do{let position:AVCaptureDevice.Position=facing==2 ? .front:.back;guard let device=AVCaptureDevice.default(.builtInWideAngleCamera,for:.video,position:position)else{throw CameraError.unavailable};let input=try AVCaptureDeviceInput(device:device);guard session.canAddInput(input)else{throw CameraError.configuration};session.addInput(input);if audioEnabled,AVCaptureDevice.authorizationStatus(for:.audio)==.authorized,let microphone=AVCaptureDevice.default(for:.audio){let audio=try AVCaptureDeviceInput(device:microphone);if session.canAddInput(audio){session.addInput(audio)}};guard session.canAddOutput(photos),session.canAddOutput(movies)else{throw CameraError.configuration};session.addOutput(photos);session.addOutput(movies);movies.maxRecordedDuration=CMTime(seconds:Double(maxDuration),preferredTimescale:600);if let connection=movies.connection(with:.video),connection.isVideoOrientationSupported{connection.videoOrientation = .portrait};session.commitConfiguration();configured=true;session.startRunning();send(["event":.integer(1)])}catch{session.commitConfiguration();failure(String(describing:error))}}
+    private func photo(){guard configured,enabled else{return};let settings=AVCapturePhotoSettings();if photos.supportedFlashModes.contains(nativeFlash()){settings.flashMode=nativeFlash()};photos.capturePhoto(with:settings,delegate:self)}
+    func photoOutput(_ output:AVCapturePhotoOutput,didFinishProcessingPhoto photo:AVCapturePhoto,error:Error?){if let error{failure(error.localizedDescription);return};guard let data=photo.fileDataRepresentation()else{failure("Photo encoding failed");return};let url=FileManager.default.temporaryDirectory.appendingPathComponent("pam-camera-\(UUID().uuidString).jpg");do{try data.write(to:url,options:.atomic);sendCapture(2,url,"image/jpeg",0)}catch{failure(error.localizedDescription)}}
+    private func startRecording(){guard configured,enabled,!movies.isRecording else{return};let url=FileManager.default.temporaryDirectory.appendingPathComponent("pam-camera-\(UUID().uuidString).mp4");recordingStartedAt=Date();movies.startRecording(to:url,recordingDelegate:self)}
+    private func stopRecording(){if movies.isRecording{movies.stopRecording()}}
+    func fileOutput(_ output:AVCaptureFileOutput,didStartRecordingTo fileURL:URL,from connections:[AVCaptureConnection]){applyTorch(flash==2);send(["event":.integer(3)])}
+    func fileOutput(_ output:AVCaptureFileOutput,didFinishRecordingTo outputFileURL:URL,from connections:[AVCaptureConnection],error:Error?){applyTorch(false);if let error{failure(error.localizedDescription);return};sendCapture(4,outputFileURL,"video/mp4",Int64(Date().timeIntervalSince(recordingStartedAt)*1000))}
+    private func nativeFlash()->AVCaptureDevice.FlashMode{flash==2 ? .on:flash==3 ? .auto:.off}
+    private func applyTorch(_ on:Bool){guard let device=(session.inputs.first as? AVCaptureDeviceInput)?.device,device.hasTorch else{return};do{try device.lockForConfiguration();device.torchMode=on ? .on:.off;device.unlockForConfiguration()}catch{failure(error.localizedDescription)}}
+    private func sendCapture(_ event:Int64,_ url:URL,_ mime:String,_ duration:Int64){send(["event":.integer(event),"path":.text(url.path),"mimeType":.text(mime),"width":.integer(0),"height":.integer(0),"durationMillis":.integer(duration)])}
+    private func failure(_ message:String){send(["event":.integer(6),"message":.text(message)])};private func send(_ values:[String:WireValue]){if let data=try?WireMap.encode(values){DispatchQueue.main.async{self.emit(data)}}}
+    func releaseCamera(){queue.async{if self.movies.isRecording{self.movies.stopRecording()};if self.session.isRunning{self.session.stopRunning()};self.session.inputs.forEach(self.session.removeInput);self.session.outputs.forEach(self.session.removeOutput)}}
+    deinit{releaseCamera()}
+}
+private extension Dictionary where Key==String,Value==WireValue{func integer(_ k:String,_ f:Int64)->Int64{if case let.integer(v)?=self[k]{return v};return f};func flag(_ k:String,_ f:Bool)->Bool{if case let.flag(v)?=self[k]{return v};return f}}
+private enum CameraError:Error{case unavailable;case configuration}
