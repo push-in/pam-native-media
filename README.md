@@ -24,6 +24,7 @@ are revision based, so a declarative re-render never repeats an operation:
 ```php
 $camera = CameraView::make()
     ->facing(CameraFacing::Back)
+    ->mode(CameraMode::Photo)
     ->flash(CameraFlashMode::Off)
     ->captureRevision($photoRevision)
     ->recordRevision($recordRevision)
@@ -35,8 +36,14 @@ $camera = CameraView::make()
     });
 ```
 
-The view supports front/back lenses, off/on/auto photo flash, torch while
-recording, optional audio, bounded recording duration and explicit stop. Apps
+The view supports front/back lenses, explicit photo/video mode, off/on/auto
+photo flash, torch while recording, optional audio, bounded recording duration
+and explicit stop. Each mode binds only the CameraX/AVFoundation outputs it
+needs, preserving compatibility with devices that reject combined photo and
+video stream configurations. Android uses CameraX's texture-compatible preview
+pipeline so controls can be composited above the camera and reactive updates do
+not abandon its surface. The preview host is touch-transparent; apps retain
+ownership of declarative shutter, mode, flash, and lens controls. Apps
 must request camera/microphone permission before enabling the view. Captured
 files live in the app cache and should be moved or deleted by the caller.
 

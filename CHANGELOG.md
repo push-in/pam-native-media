@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.2 - 2026-08-07
+
+- Add a typed photo/video camera mode and bind only the active capture pipeline.
+- Add CameraX quality fallback so embedded video capture works on constrained
+  devices and Android emulators.
+- Render Android previews through the compatible texture pipeline so modal
+  overlays and declarative updates do not abandon the camera surface.
+- Keep the Android preview touch-transparent so declarative camera controls
+  layered by the host application receive their press events.
+
 ## 0.2.1 - 2026-08-05
 
 - Fix CameraX callback return types so embedded camera hosts compile with the
