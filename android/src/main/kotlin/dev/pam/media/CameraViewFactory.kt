@@ -112,10 +112,10 @@ private class CameraHost(context: Context) : FrameLayout(context) {
             send(6, "Camera is not ready")
             return
         }
-        val file = File(context.cacheDir, "pam-camera-${System.currentTimeMillis()}.jpg")
+        val file = captureFile("jpg")
         capture.takePicture(ImageCapture.OutputFileOptions.Builder(file).build(), executor, object : ImageCapture.OnImageSavedCallback {
             override fun onImageSaved(result: ImageCapture.OutputFileResults) {
-                send(2, path=file.absolutePath, mime="image/jpeg")
+                send(2, path=capturePath(file), mime="image/jpeg")
             }
 
             override fun onError(error: ImageCaptureException) {
@@ -130,19 +130,24 @@ private class CameraHost(context: Context) : FrameLayout(context) {
             send(6, "Camera is not ready")
             return
         }
-        val file = File(context.cacheDir, "pam-camera-${System.currentTimeMillis()}.mp4")
+        val file = captureFile("mp4")
         var pending: PendingRecording = output.prepareRecording(context, FileOutputOptions.Builder(file).build())
         if (audioEnabled && ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) pending = pending.withAudioEnabled()
         recordingStartedAt = System.currentTimeMillis()
         recording = pending.start(ContextCompat.getMainExecutor(context)) { event ->
             when (event) {
                 is VideoRecordEvent.Start -> { camera?.cameraControl?.enableTorch(flashMode == 2L); send(3) }
-                is VideoRecordEvent.Finalize -> { camera?.cameraControl?.enableTorch(false); recording = null; if (event.hasError()) send(6, event.cause?.message ?: "Video capture failed") else send(4, path=file.absolutePath, mime="video/mp4", duration=System.currentTimeMillis()-recordingStartedAt) }
+                is VideoRecordEvent.Finalize -> { camera?.cameraControl?.enableTorch(false); recording = null; if (event.hasError()) send(6, event.cause?.message ?: "Video capture failed") else send(4, path=capturePath(file), mime="video/mp4", duration=System.currentTimeMillis()-recordingStartedAt) }
             }
         }
         postDelayed({ if (recording != null) stopRecording() }, maxDurationSeconds * 1000)
     }
     private fun stopRecording() { recording?.stop() }
+    private fun captureFile(extension: String): File {
+        val directory = File(context.filesDir, "pam-files/captures").apply { mkdirs() }
+        return File(directory, "pam-camera-${System.currentTimeMillis()}.$extension")
+    }
+    private fun capturePath(file: File) = "captures/${file.name}"
     private fun nativeFlash(value: Long) = when(value){2L->ImageCapture.FLASH_MODE_ON;3L->ImageCapture.FLASH_MODE_AUTO;else->ImageCapture.FLASH_MODE_OFF}
     private fun send(event:Long,message:String="",path:String="",mime:String="",duration:Long=0)=post{emitter?.invoke(WireMap.encode(mapOf("event" to WireValue.Integer(event),"message" to WireValue.Text(message),"path" to WireValue.Text(path),"mimeType" to WireValue.Text(mime),"width" to WireValue.Integer(0),"height" to WireValue.Integer(0),"durationMillis" to WireValue.Integer(duration))))}
     fun release(){recording?.close();recording=null;provider?.unbindAll();provider=null;camera=null;executor.shutdownNow()}

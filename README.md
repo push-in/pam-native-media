@@ -31,7 +31,7 @@ $camera = CameraView::make()
     ->stopRevision($stopRevision)
     ->onEvent(function (CameraEventKind $event, ?CameraCapture $capture, string $message): void {
         if ($event === CameraEventKind::Captured && $capture !== null) {
-            // $capture->path is an app-owned temporary JPEG.
+            // $capture->path is relative to the app-owned PAM file sandbox.
         }
     });
 ```
@@ -44,7 +44,9 @@ video stream configurations. Android uses CameraX's texture-compatible preview
 pipeline so controls can be composited above the camera and reactive updates do
 not abandon its surface. The preview host is touch-transparent; apps retain
 ownership of declarative shutter, mode, flash, and lens controls. Apps
-must request camera/microphone permission before enabling the view. Captured
-files live in the app cache and should be moved or deleted by the caller.
+must request camera/microphone permission before enabling the view. Both
+platforms persist captures under the PAM file sandbox and return relative paths.
+Construct a `FileReference` from the capture metadata to preview, edit, upload,
+or delete the file with the standard PAM APIs.
 
 Platform support: Android API 26+, iOS 15+, PAM Native 0.6.x.

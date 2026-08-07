@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.3 - 2026-08-07
+
+- Store embedded camera photos and videos in the PAM file sandbox and return
+  renderer-safe relative paths, so captured media can be previewed, edited,
+  uploaded and deleted through `FileReference` on Android and iOS.
+
 ## 0.2.2 - 2026-08-07
 
 - Add a typed photo/video camera mode and bind only the active capture pipeline.
