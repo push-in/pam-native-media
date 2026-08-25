@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4 - 2026-08-24
+
+- Certify PAM Native 0.9.1 while preserving the supported 0.8 line.
+
 ## 0.2.3 - 2026-08-07
 
 - Store embedded camera photos and videos in the PAM file sandbox and return
