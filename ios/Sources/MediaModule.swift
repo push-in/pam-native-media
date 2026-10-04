@@ -73,7 +73,7 @@ public final class MediaModule: NativeModule, @unchecked Sendable {
             if #available(iOS 16.0, *) {
                 generator.generateCGImageAsynchronously(for: requestedTime) { image, _, error in
                     guard let image else {
-                        completion(.failure, Data(String(describing: error ?? MediaError.encoding).utf8)))
+                        completion(.failure, Data(String(describing: error ?? MediaError.encoding).utf8))
                         return
                     }
                     self.write(image, destination, destinationPath, Int(maxWidth), Int(maxHeight), format, quality, completion)
@@ -81,7 +81,7 @@ public final class MediaModule: NativeModule, @unchecked Sendable {
             } else {
                 generator.generateCGImagesAsynchronously(forTimes: [NSValue(time: requestedTime)]) { _, image, _, result, error in
                     guard result == .succeeded, let image else {
-                        completion(.failure, Data(String(describing: error ?? MediaError.encoding).utf8)))
+                        completion(.failure, Data(String(describing: error ?? MediaError.encoding).utf8))
                         return
                     }
                     self.write(image, destination, destinationPath, Int(maxWidth), Int(maxHeight), format, quality, completion)
