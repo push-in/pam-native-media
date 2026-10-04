@@ -63,7 +63,9 @@ $media->probe('media/clip.mp4', function (?Pam\Native\Media\MediaInfo $info, ?st
 $media->thumbnail('media/clip.mp4', 'thumbs/clip.jpg', 640, 360, function (?string $path, ?string $error): void {});
 ```
 
-Android uses platform codecs plus ExifInterface `1.4.2`; iOS uses AVFoundation and ImageIO. All paths are relative to Application Support/files storage and are canonicalized natively. Images honor EXIF orientation and video thumbnails honor track transforms.
+Android uses platform codecs plus ExifInterface `1.4.2`; iOS uses AVFoundation and ImageIO. All paths are relative to Application Support/files storage and are canonicalized natively. Images honor EXIF orientation and video thumbnails honor track transforms. iOS thumbnails fit within both requested dimensions and replace an existing destination only after encoding succeeds.
+
+On macOS, run the focused sizing and sandbox checks with `swiftc ios/Sources/MediaThumbnailSizing.swift ios/Sources/MediaSandboxPath.swift tests/ios-thumbnail/main.swift -o /tmp/pam-media-ios-check && /tmp/pam-media-ios-check`.
 
 ## Embedded camera
 
@@ -98,7 +100,7 @@ platforms persist captures under the PAM file sandbox and return relative paths.
 Construct a `FileReference` from the capture metadata to preview, edit, upload,
 or delete the file with the standard PAM APIs.
 
-Platform support: Android API 26+, iOS 15+, PAM Native 0.8.x.
+Platform support: Android API 26+, iOS 15+, PAM Native 0.8–1.x.
 
 
 ## What installation does
@@ -136,7 +138,7 @@ All coded states, kinds, and variants are sequential integer-backed enums. Use e
 
 ## Compatibility and support
 
-This package targets PAM Native `0.8.x`, Android API 26+, and iOS 15+ unless a platform-specific section above states a stricter requirement. Platform SDKs, credentials, entitlements, physical hardware, and store configuration remain application responsibilities.
+This package targets PAM Native `0.8–1.x`, Android API 26+, and iOS 15+ unless a platform-specific section above states a stricter requirement. Platform SDKs, credentials, entitlements, physical hardware, and store configuration remain application responsibilities.
 
 - [PAM documentation](https://push-in.github.io/pam-docs/introduction/)
 - [PAM Native overview](https://push-in.github.io/pam-docs/native/overview/)
