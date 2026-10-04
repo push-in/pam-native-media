@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.2 - 2026-10-04
+
+- Keep iOS image and video thumbnails inside both requested dimensions,
+  including rotated EXIF images, and preserve the previous output if encoding fails.
+- Resolve each sandbox path component before writing, so an intermediate
+  symbolic link cannot redirect a thumbnail outside application storage.
+- Guard non-finite AVFoundation metadata and run Swift thumbnail contracts on
+  macOS alongside the PHP package checks.
+
 ## 0.2.5 - 2026-08-24
 
 - Expand the plugin contract through the complete pre-1.0 PAM Native line.
