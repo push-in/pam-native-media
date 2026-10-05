@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.0 - 2026-10-05
+
+- iOS: `Media::transcode()` with AVAssetReader/AVAssetWriter (H.264 Main 4.1 /
+  AAC-LC, Android preset targets and bitrate tiers, 2 s keyframes, fast start,
+  `withoutAudio()`, cancellable progress through the same `transcodeNext`
+  channel).
+- iOS: `Media::image()` (`resize`/`crop`/`rotate`/`flip`/`format`, `probe()`
+  with stored dimensions and EXIF orientation) on ImageIO/CoreGraphics with the
+  Android geometry, and `Media::thumbnails()` batches; `ThumbnailFormat::Webp`
+  where ImageIO can encode WebP; HTTPS video thumbnails.
+- iOS: expose `PamMediaTranscoding` (Objective-C, contract version 1) for
+  `pushinbr/pam-native-background-transfer` 0.4+.
+- Fix: iOS `probe()`/`thumbnail()` resolve paths in the PAM file sandbox
+  (`Application Support/pam-files`), matching Android and `FileReference`.
+- iOS module work runs off the PHP thread (two workers).
+- XCTest mirror of the Android geometry and module tests (`ios/Tests`).
+  Uncompiled on the release machine; needs device validation.
+
 ## 0.4.0 - 2026-10-05
 
 - Add `Media::transcode($src)->to()->preset(VideoPreset)->maxBitrate()->fastStart()->withoutAudio()->progress()->run()`:
