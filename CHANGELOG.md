@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.4.0 - 2026-10-05
+
+- Add `Media::transcode($src)->to()->preset(VideoPreset)->maxBitrate()->fastStart()->withoutAudio()->progress()->run()`:
+  Media3 Transformer export to H.264 Main@4.1 / AAC-LC MP4 with bounded
+  dimensions, 2 s keyframes, HDR→SDR tone mapping, mono→stereo, sample-rate
+  normalization, cancellable `TranscodeTask` and native fast-start (`moov`
+  before `mdat`) rewriting.
+- Add `Media::image($src)` with `resize(w, h, ResizeMode)`, `onlyScaleDown()`,
+  `crop()`, `rotate()`, `flip()`, `format(ImageFormat, quality)` and atomic
+  `save()`, plus `probe()` returning display and stored dimensions with the
+  EXIF `ExifOrientation`. Decoding subsamples to the needed resolution and caps
+  decoded pixels.
+- Add `Media::thumbnails([...Thumbnail])` batches with per-item results,
+  scaled video frame extraction and HTTPS sources for remote videos;
+  `ThumbnailFormat::Webp`.
+- Expose `dev.pam.media.MediaTranscoding`, a stable JVM entry point (kept via
+  consumer R8 rules) used by `pushinbr/pam-native-background-transfer` 0.3 to
+  transcode inside its upload worker.
+- Fix: Android `probe()`/`thumbnail()` now resolve paths in the PAM file
+  sandbox (`filesDir/pam-files`), matching camera captures and `FileReference`.
+- Android module work runs off the PHP thread on a bounded executor.
+- Requires PAM Native `>=1.0.35 <2.0.0`. New APIs are Android-only for now;
+  iOS keeps `probe()`, `thumbnail()` and the camera.
+- Add Android JVM unit tests and instrumented tests.
+
 ## 0.3.2 - 2026-10-04
 
 - Keep iOS image and video thumbnails inside both requested dimensions,

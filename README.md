@@ -58,12 +58,47 @@ pam doctor
 ```
 
 ```php
-$media = new Pam\Native\Media\Media();
+use Pam\Native\Media\{FlipDirection, ImageFormat, ImageInfo, ImageResult, Media, ResizeMode, Thumbnail, ThumbnailResult, TranscodeResult, VideoPreset};
+
+// Upload-ready MP4 (H.264 Main / AAC-LC, bounded size, 2 s keyframes, fast start)
+$task = Media::transcode('captures/clip.mov')
+    ->to('outbox/clip.mp4')
+    ->preset(VideoPreset::Chat720p)
+    ->maxBitrate(1_200_000)
+    ->fastStart()
+    ->progress(fn (float $p) => $this->encoding = $p)
+    ->run(fn (TranscodeResult $video) => $this->send($video->path), fn (string $error) => $this->fail($error));
+// $task->cancel();
+
+// Image pipeline: EXIF orientation first, then operations in call order
+Media::image('captures/photo.jpg')
+    ->resize(1600, 1600, ResizeMode::Contain)
+    ->onlyScaleDown()
+    ->crop(0, 0, 1600, 900)
+    ->rotate(90)
+    ->flip(FlipDirection::Horizontal)
+    ->format(ImageFormat::Webp, 80)
+    ->save('outbox/photo.webp', fn (ImageResult $image) => ...);
+
+Media::image('captures/photo.jpg')->probe(fn (ImageInfo $info) => [$info->width, $info->height, $info->orientation]);
+
+// Many thumbnails in one native call (sandbox paths, or HTTPS URLs for remote videos)
+Media::thumbnails([
+    Thumbnail::make('captures/clip.mov', 'thumbs/clip.jpg')->size(320, 320)->at(1000),
+    Thumbnail::make('https://cdn.example.com/v.mp4', 'thumbs/v.jpg'),
+], fn (array $results) => ...); // list<ThumbnailResult>, request order, per-item error
+
+// Unchanged 0.3 API
+$media = new Media();
 $media->probe('media/clip.mp4', function (?Pam\Native\Media\MediaInfo $info, ?string $error): void {});
 $media->thumbnail('media/clip.mp4', 'thumbs/clip.jpg', 640, 360, function (?string $path, ?string $error): void {});
 ```
 
-Android uses platform codecs plus ExifInterface `1.4.2`; iOS uses AVFoundation and ImageIO. All paths are relative to Application Support/files storage and are canonicalized natively. Images honor EXIF orientation and video thumbnails honor track transforms. iOS thumbnails fit within both requested dimensions and replace an existing destination only after encoding succeeds.
+`VideoPreset`: `Compact480p` (≤854×480, 0.8 Mbps), `Chat720p` (≤1280×720, 1.5 Mbps), `Chat1080p` (≤1920×1080, 2.5 Mbps), `Adaptive` (1080p up to 3 min, then 720p). Presets never upscale, keep the display orientation and aspect ratio, tone-map HDR to SDR, convert mono audio to stereo and resample unusual rates to 48 kHz. `ResizeMode::Contain|Cover|Stretch` accept `0` for one automatic dimension; `onlyScaleDown()` never enlarges (Cover then keeps the box aspect ratio). Decoding subsamples large photos to the size actually needed and caps decoded pixels, so PHP never holds pixel data. Outputs are written atomically.
+
+Android uses Media3 Transformer `1.10.1`, platform codecs and ExifInterface `1.4.2`; Android paths resolve inside the PAM file sandbox (`filesDir/pam-files`, the `FileReference::$path` space). iOS uses AVFoundation and ImageIO for `probe()`/`thumbnail()`; `transcode()`, `image()` and `thumbnails()` are Android-only in 0.4. Images honor EXIF orientation and video thumbnails honor track transforms.
+
+Other PAM plugins can reuse the transcoder through the stable JVM entry point `dev.pam.media.MediaTranscoding.transcode(context, source, destination, optionsJson, cancelled, progress)`; `pushinbr/pam-native-background-transfer` uses it for `->transcode()`.
 
 On macOS, run the focused sizing and sandbox checks with `swiftc ios/Sources/MediaThumbnailSizing.swift ios/Sources/MediaSandboxPath.swift tests/ios-thumbnail/main.swift -o /tmp/pam-media-ios-check && /tmp/pam-media-ios-check`.
 
@@ -100,7 +135,7 @@ platforms persist captures under the PAM file sandbox and return relative paths.
 Construct a `FileReference` from the capture metadata to preview, edit, upload,
 or delete the file with the standard PAM APIs.
 
-Platform support: Android API 26+, iOS 15+, PAM Native 0.8–1.x.
+Platform support: Android API 26+, iOS 15+, PAM Native `>=1.0.35 <2.0.0`.
 
 
 ## What installation does
@@ -113,13 +148,21 @@ Use `pam packages` to inspect availability and `pam remove media` to uninstall t
 
 | API | Responsibility |
 | --- | --- |
-| `Media` | Probe sandboxed media and generate bounded thumbnails. |
+| `Media` | Probe sandboxed media, generate bounded thumbnails; `transcode()`, `image()`, `thumbnails()`. |
+| `PendingTranscode` / `TranscodeTask` / `TranscodeResult` | Fluent video transcode, cancellation and result. |
+| `PendingImage` / `ImageInfo` / `ImageResult` | Image resize/crop/rotate/flip/encode and EXIF-aware probe. |
+| `Thumbnail` / `ThumbnailResult` | Batched image/video thumbnails. |
+| `VideoPreset`, `ResizeMode`, `ImageFormat`, `FlipDirection`, `ExifOrientation` | Sequential integer-backed enums (EXIF values for orientation). |
 | `MediaInfo` | Read normalized type, dimensions, duration, and orientation. |
 | `CameraView` | Render a lifecycle-aware native photo/video camera. |
 | `CameraCapture` | Receive sandbox-relative capture metadata. |
 | `ThumbnailFormat` | Choose JPEG, PNG, or supported output encoding. |
 
 All coded states, kinds, and variants are sequential integer-backed enums. Use enum cases in application code; do not depend on raw wire numbers.
+
+## Tests
+
+`composer test` runs the PHP contract suite. Android JVM tests (`android/src/test`: resize geometry, fast-start rewriting, options) and instrumented tests (`android/src/androidTest`: EXIF pipeline, thumbnails, Media3 transcode, cross-plugin entry point) run from a PAM Android host that includes this plugin with `testDebugUnitTest` / `connectedDebugAndroidTest`.
 
 ## Production checklist
 
