@@ -6,12 +6,81 @@ namespace Pam\Native\Media;
 
 use Closure;
 use InvalidArgumentException;
+use JsonException;
 use Pam\Native\Modules\NativeModuleResult;
 use Pam\Native\Modules\NativeModules;
 
 final class Media
 {
     private const string MODULE = 'media';
+
+    /**
+     * Re-encodes a video into an upload-ready MP4.
+     *
+     * ```php
+     * Media::transcode('captures/clip.mov')->to('outbox/clip.mp4')->preset(VideoPreset::Chat720p)
+     *     ->run(fn (TranscodeResult $video) => ..., fn (string $error) => ...);
+     * ```
+     */
+    public static function transcode(string $source): PendingTranscode
+    {
+        return new PendingTranscode($source);
+    }
+
+    /**
+     * Native image pipeline: `probe()` or resize/crop/rotate/flip/format and `save()`.
+     */
+    public static function image(string $source): PendingImage
+    {
+        return new PendingImage($source);
+    }
+
+    /**
+     * Generates thumbnails for many images/videos in one native call; results keep request order.
+     *
+     * @param list<Thumbnail> $requests
+     * @param Closure(list<ThumbnailResult>): void $then
+     */
+    public static function thumbnails(array $requests, Closure $then): int
+    {
+        if ($requests === [] || count($requests) > 100) {
+            throw new InvalidArgumentException('A thumbnail batch needs between 1 and 100 requests.');
+        }
+        $wire = [];
+        $sources = [];
+        foreach ($requests as $request) {
+            if (!$request instanceof Thumbnail) {
+                throw new InvalidArgumentException('Thumbnail batches accept Thumbnail requests only.');
+            }
+            $wire[] = $request->toWire();
+            $sources[] = $request->source();
+        }
+        try {
+            $items = json_encode($wire, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+        } catch (JsonException $error) {
+            throw new InvalidArgumentException($error->getMessage(), previous: $error);
+        }
+
+        return NativeModules::call(self::MODULE, 'thumbnails', ['items' => $items], static function (NativeModuleResult $result) use ($then, $sources): void {
+            $rows = [];
+            if ($result->succeeded()) {
+                try {
+                    $decoded = json_decode((string) ($result->values()['results'] ?? '[]'), true, 8, JSON_THROW_ON_ERROR);
+                    $rows = is_array($decoded) ? $decoded : [];
+                } catch (JsonException) {
+                    $rows = [];
+                }
+            }
+            $results = [];
+            foreach ($sources as $index => $source) {
+                $row = is_array($rows[$index] ?? null) ? $rows[$index] : [];
+                $path = isset($row['path']) && is_string($row['path']) && $row['path'] !== '' ? $row['path'] : null;
+                $error = $path === null ? (string) ($row['error'] ?? ($result->succeeded() ? 'Thumbnail failed.' : $result->message())) : null;
+                $results[] = new ThumbnailResult($source, $path, (int) ($row['width'] ?? 0), (int) ($row['height'] ?? 0), $error);
+            }
+            $then($results);
+        });
+    }
 
     /** @param Closure(?MediaInfo, ?string): void $complete */
     public function probe(string $path, Closure $complete): int
@@ -58,8 +127,6 @@ final class Media
 
     private function assertPath(string $path): void
     {
-        if ($path === '' || strlen($path) > 1024 || str_contains($path, "\0") || str_starts_with($path, '/')) {
-            throw new InvalidArgumentException('Media paths must be relative sandbox paths.');
-        }
+        MediaPath::assert($path);
     }
 }
