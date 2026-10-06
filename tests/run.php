@@ -20,4 +20,31 @@ $test('batches thumbnails preserving order and per-item errors',static function(
 $test('rejects unsafe image and transcode input',static function():void{$cases=[static fn()=>Media::image('/etc/a.jpg'),static fn()=>Media::image('a/../b.jpg'),static fn()=>Media::image('a.jpg')->rotate(45),static fn()=>Media::image('a.jpg')->resize(0,0),static fn()=>Media::image('a.jpg')->format(Pam\Native\Media\ImageFormat::Jpeg,0),static fn()=>Media::transcode('a.mp4')->to('a.mp4'),static fn()=>Media::transcode('a.mp4')->maxBitrate(10),static fn()=>Pam\Native\Media\Thumbnail::make('http://x.test/a.mp4','t.jpg'),static fn()=>Media::thumbnails([],static fn()=>null)];foreach($cases as$i=>$case){try{$case();throw new RuntimeException("unsafe case $i accepted");}catch(InvalidArgumentException){}}});
 $test('new coded variants are sequential and match the IDL',static function():void{$idl=json_decode((string)file_get_contents(dirname(__DIR__).'/pam-native.idl.json'),true,16,JSON_THROW_ON_ERROR);foreach($idl['enums'] as $name=>$cases){$class='Pam\\Native\\Media\\'.$name;$actual=[];foreach($class::cases() as $case)$actual[$case->name]=$case->value;if($actual!==$cases)throw new RuntimeException("$name differs from IDL");if(array_values($cases)!==range(1,count($cases)))throw new RuntimeException("$name is not sequential");}});
 $test('android media resolves the PAM file sandbox and keeps the transcode entry point',static function():void{$root=dirname(__DIR__);$module=(string)file_get_contents($root.'/android/src/main/kotlin/dev/pam/media/MediaModule.kt');$rules=(string)file_get_contents($root.'/android/consumer-rules.pro');if(!str_contains($module,'File(this.context.filesDir, "pam-files")'))throw new RuntimeException('media module does not use the pam-files sandbox');if(!str_contains($rules,'dev.pam.media.MediaTranscoding'))throw new RuntimeException('transcode entry point is not kept');});
+$test('recording zoom is optional, immutable and encoded as native view properties', static function (): void {
+    $camera = CameraView::make();
+    $zoomed = $camera->recordingZoom(2.8)->maxDuration(3);
+    $properties = static fn (CameraView $view): array => Wire::decodeMap(
+        $view->toElement()->properties()[Pam\Native\PropKey::HostProperties->value]->bytes,
+    );
+    $defaults = $properties($camera);
+    $active = $properties($zoomed);
+    if ($defaults['zoomTarget'] !== 1.0 || $defaults['zoomDurationMillis'] !== 0) {
+        throw new RuntimeException('Default camera started an animation or the builder mutated');
+    }
+    if ($active['zoomTarget'] !== 2.8 || $active['zoomDurationMillis'] !== 1600 || $active['maxDurationSeconds'] !== 3) {
+        throw new RuntimeException('Native recording zoom contract mismatch');
+    }
+    if ($properties($zoomed->recordingZoom(2.8, 0))['zoomDurationMillis'] !== 0) {
+        throw new RuntimeException('Zero duration must disable the animation');
+    }
+});
+$test('recording zoom rejects invalid native animation parameters', static function (): void {
+    foreach ([[NAN, 1600], [INF, 1600], [0.5, 1600], [2.8, -1], [2.8, 600001]] as [$target, $duration]) {
+        try {
+            CameraView::make()->recordingZoom($target, $duration);
+            throw new RuntimeException('Invalid recording zoom was accepted');
+        } catch (InvalidArgumentException) {
+        }
+    }
+});
 $failed=0;foreach($tests as$n=>$f){try{$f();fwrite(STDOUT,"PASS $n\n");}catch(Throwable$e){$failed++;fwrite(STDERR,"FAIL $n: {$e->getMessage()}\n");}}fwrite(STDOUT,count($tests)." tests, $failed failures\n");exit($failed?1:0);

@@ -48,7 +48,6 @@ private class CameraHost(context: Context) : FrameLayout(context) {
     private var imageCapture: ImageCapture? = null
     private var videoCapture: VideoCapture<Recorder>? = null
     private var recording: Recording? = null
-    private var recordingStartedAt = 0L
     private var facing = 1L
     private var mode = 1L
     private var flashMode = 1L
@@ -58,12 +57,21 @@ private class CameraHost(context: Context) : FrameLayout(context) {
     private var captureRevision = 0L
     private var recordRevision = 0L
     private var stopRevision = 0L
+    private var zoomTarget = 1f
+    private var zoomDurationMillis = 0L
+    private val recordingZoom = CameraRecordingZoom()
+    private var recordingRevision = 0L
+    private var recordingStopping = false
+    private var stopTask: Runnable? = null
+    private var released = false
+    private var bindRevision = 0L
 
     init { addView(preview, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)); post(::bind) }
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean = false
 
     fun update(v: Map<String, WireValue>) {
+        if (released) return
         val nextFacing = v.integer("facing", 1)
         val nextMode = v.integer("mode", 1).coerceIn(1, 3)
         val nextCapture = v.integer("captureRevision", 0)
@@ -71,6 +79,9 @@ private class CameraHost(context: Context) : FrameLayout(context) {
         val nextStop = v.integer("stopRevision", 0)
         enabled = v.flag("enabled", true); audioEnabled = v.flag("audioEnabled", true)
         flashMode = v.integer("flashMode", 1); maxDurationSeconds = v.integer("maxDurationSeconds", 60).coerceIn(1, 600)
+        zoomTarget = v.decimal("zoomTarget", 1.0).toFloat().takeIf { it.isFinite() }?.coerceAtLeast(1f) ?: 1f
+        zoomDurationMillis = v.integer("zoomDurationMillis", 0).coerceIn(0, 600_000)
+        if (!enabled) stopRecording()
         if (nextFacing != facing) { facing = nextFacing; bind() }
         if (nextMode != mode) { mode = nextMode; bind() }
         imageCapture?.flashMode = nativeFlash(flashMode)
@@ -81,11 +92,14 @@ private class CameraHost(context: Context) : FrameLayout(context) {
     }
 
     private fun bind() {
-        if (!enabled) return
+        if (!enabled || released) return
+        stopRecording()
+        val revision = ++bindRevision
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) { send(5, "Camera permission is required"); return }
         val owner = context as? LifecycleOwner ?: run { send(6, "Camera host has no lifecycle"); return }
         val future = ProcessCameraProvider.getInstance(context)
         future.addListener({ runCatching {
+            if (released || revision != bindRevision || !enabled) return@addListener
             val p = future.get(); provider = p; p.unbindAll()
             val previewUseCase = Preview.Builder().build().also { it.surfaceProvider = preview.surfaceProvider }
             val selector = if (facing == 2L) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
@@ -142,7 +156,7 @@ private class CameraHost(context: Context) : FrameLayout(context) {
     }
 
     private fun startRecording() {
-        if (recording != null) return
+        if (recording != null || !enabled || released) return
         val output = videoCapture?.output ?: run {
             send(6, "Camera is not ready")
             return
@@ -150,16 +164,35 @@ private class CameraHost(context: Context) : FrameLayout(context) {
         val file = captureFile("mp4")
         var pending: PendingRecording = output.prepareRecording(context, FileOutputOptions.Builder(file).build())
         if (audioEnabled && ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) pending = pending.withAudioEnabled()
-        recordingStartedAt = System.currentTimeMillis()
+        recordingStopping = false
+        val revision = ++recordingRevision
+        val recordingCamera = camera
+        val target = zoomTarget
+        val zoomMillis = zoomDurationMillis
+        val durationMillis = maxDurationSeconds * 1000
         recording = pending.start(ContextCompat.getMainExecutor(context)) { event ->
+            if (released || revision != recordingRevision) return@start
             when (event) {
-                is VideoRecordEvent.Start -> { camera?.cameraControl?.enableTorch(flashMode == 2L); send(3) }
-                is VideoRecordEvent.Finalize -> { camera?.cameraControl?.enableTorch(false); recording = null; if (event.hasError()) send(6, event.cause?.message ?: "Video capture failed") else send(4, path=capturePath(file), mime="video/mp4", duration=System.currentTimeMillis()-recordingStartedAt) }
+                is VideoRecordEvent.Start -> {
+                    if (recordingStopping) { recording?.stop(); return@start }
+                    recordingCamera?.cameraControl?.enableTorch(flashMode == 2L)
+                    recordingZoom.start(recordingCamera, target, zoomMillis)
+                    stopTask = Runnable { if (revision == recordingRevision) stopRecording() }.also { postDelayed(it, durationMillis) }
+                    send(3)
+                }
+                is VideoRecordEvent.Finalize -> {
+                    cancelStopTask()
+                    recordingZoom.reset()
+                    recordingCamera?.cameraControl?.enableTorch(false)
+                    recording = null
+                    if (event.hasError()) send(6, event.cause?.message ?: "Video capture failed")
+                    else send(4, path=capturePath(file), mime="video/mp4", duration=event.recordingStats.recordedDurationNanos/1_000_000)
+                }
             }
         }
-        postDelayed({ if (recording != null) stopRecording() }, maxDurationSeconds * 1000)
     }
-    private fun stopRecording() { recording?.stop() }
+    private fun stopRecording() { recordingStopping = true; cancelStopTask(); recordingZoom.reset(); recording?.stop() }
+    private fun cancelStopTask() { stopTask?.let(::removeCallbacks); stopTask = null }
     private fun captureFile(extension: String): File {
         val directory = File(context.filesDir, "pam-files/captures").apply { mkdirs() }
         return File(directory, "pam-camera-${System.currentTimeMillis()}.$extension")
@@ -167,7 +200,8 @@ private class CameraHost(context: Context) : FrameLayout(context) {
     private fun capturePath(file: File) = "captures/${file.name}"
     private fun nativeFlash(value: Long) = when(value){2L->ImageCapture.FLASH_MODE_ON;3L->ImageCapture.FLASH_MODE_AUTO;else->ImageCapture.FLASH_MODE_OFF}
     private fun send(event:Long,message:String="",path:String="",mime:String="",duration:Long=0)=post{emitter?.invoke(WireMap.encode(mapOf("event" to WireValue.Integer(event),"message" to WireValue.Text(message),"path" to WireValue.Text(path),"mimeType" to WireValue.Text(mime),"width" to WireValue.Integer(0),"height" to WireValue.Integer(0),"durationMillis" to WireValue.Integer(duration))))}
-    fun release(){recording?.close();recording=null;provider?.unbindAll();provider=null;camera=null;executor.shutdownNow()}
+    fun release(){released=true;++bindRevision;++recordingRevision;cancelStopTask();recordingZoom.reset();emitter=null;recording?.close();recording=null;provider?.unbindAll();provider=null;camera=null;executor.shutdownNow()}
     private fun Map<String,WireValue>.integer(key:String,fallback:Long)=(get(key)as?WireValue.Integer)?.value?:fallback
     private fun Map<String,WireValue>.flag(key:String,fallback:Boolean)=(get(key)as?WireValue.Flag)?.value?:fallback
+    private fun Map<String,WireValue>.decimal(key:String,fallback:Double)=when(val value=get(key)){is WireValue.Decimal->value.value;is WireValue.Integer->value.value.toDouble();else->fallback}
 }

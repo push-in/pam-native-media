@@ -137,6 +137,28 @@ platforms persist captures under the PAM file sandbox and return relative paths.
 Construct a `FileReference` from the capture metadata to preview, edit, upload,
 or delete the file with the standard PAM APIs.
 
+Optional recording zoom runs entirely on the native camera:
+
+```php
+$camera = CameraView::make()
+    ->mode(CameraMode::Video)
+    ->recordingZoom(2.8, 1600)
+    ->maxDuration(3)
+    ->recordRevision($recordRevision)
+    ->stopRevision($stopRevision);
+```
+
+The ramp starts at `RecordingStarted`, from 1× to the requested target over the
+specified milliseconds. The camera's zoom range bounds the target; stopping,
+disabling, changing lenses/modes or releasing the view cancels and resets zoom.
+The default target `1.0` and duration `0` leave zoom disabled. Targets must be
+finite and at least `1.0`; durations accept `0`–`600000` milliseconds, with zero
+disabling the animation. Direct `media.camera` hosts use the additive
+`zoomTarget` (decimal) and `zoomDurationMillis` (integer) properties. Changing
+these values affects the next recording. Existing camera event integers stay
+unchanged. Android uses CameraX with a native animator, and iOS uses the
+AVFoundation zoom ramp; no animation frames cross the PHP bridge.
+
 Platform support: Android API 26+, iOS 15+, PAM Native `>=1.0.35 <2.0.0`.
 
 
@@ -292,7 +314,7 @@ transcode destination equal to its source. `run()` without `to()` throws
 
 ## Tests
 
-`composer test` runs the PHP contract suite. Android JVM tests (`android/src/test`: resize geometry, fast-start rewriting, options) and instrumented tests (`android/src/androidTest`: EXIF pipeline, thumbnails, Media3 transcode, cross-plugin entry point) run from a PAM Android host that includes this plugin with `testDebugUnitTest` / `connectedDebugAndroidTest`.
+`composer test` runs the PHP contract suite. Android JVM tests (`android/src/test`: resize geometry, fast-start rewriting, options) and instrumented tests (`android/src/androidTest`: EXIF pipeline, thumbnails, Media3 transcode, cross-plugin entry point) run from a PAM Android host that includes this plugin with `testDebugUnitTest` / `connectedDebugAndroidTest`. JVM tests require JUnit 4 and the JVM `org.json` implementation on the test classpath (the Android SDK JSON stub cannot execute parser tests).
 
 ## Production checklist
 

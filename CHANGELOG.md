@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.2 - 2026-10-06
+
+- Add optional `CameraView::recordingZoom(target, durationMillis)` and native
+  `zoomTarget`/`zoomDurationMillis` properties. Zoom begins at recording start,
+  clamps to the device range and resets on stop, disable, rebind or release.
+- Keep recording timers and asynchronous camera setup owned by the live
+  Android host; ignore callbacks after release.
+- iOS treats successfully finalized duration-limited captures as usable files
+  and updates the native duration limit for each recording.
+- Add PHP zoom contract/validation tests and Android zoom range/progression
+  tests. No additional dependencies.
+
 ## 0.5.1 - 2026-10-06
 
 - Add `CameraMode::PhotoVideo` (3): one session with photo capture and video
