@@ -124,9 +124,11 @@ $camera = CameraView::make()
 
 The view supports front/back lenses, explicit photo/video mode, off/on/auto
 photo flash, torch while recording, optional audio, bounded recording duration
-and explicit stop. Each mode binds only the CameraX/AVFoundation outputs it
-needs, preserving compatibility with devices that reject combined photo and
-video stream configurations. Android uses CameraX's texture-compatible preview
+and explicit stop. `Photo` and `Video` bind only the CameraX/AVFoundation
+outputs they need. `PhotoVideo` binds photo and video together for a shutter
+that takes a photo on tap and records while held; devices that reject the
+combined stream configuration fall back to the photo pipeline and a record
+command then reports `Failure`. Android uses CameraX's texture-compatible preview
 pipeline so controls can be composited above the camera and reactive updates do
 not abandon its surface. The preview host is touch-transparent; apps retain
 ownership of declarative shutter, mode, flash, and lens controls. Apps
@@ -273,7 +275,7 @@ its command once. `CameraCapture` (readonly): `path`, `mimeType`, `width`,
 | `FlipDirection` | `Horizontal = 1`, `Vertical = 2` |
 | `ExifOrientation` | EXIF values `Normal = 1` … `Rotate270 = 8`; `degrees()`, `swapsDimensions()` |
 | `CameraFacing` | `Back = 1`, `Front = 2` |
-| `CameraMode` | `Photo = 1`, `Video = 2` |
+| `CameraMode` | `Photo = 1`, `Video = 2`, `PhotoVideo = 3` |
 | `CameraFlashMode` | `Off = 1`, `On = 2`, `Auto = 3` |
 | `CameraEventKind` | `Ready = 1`, `Captured`, `RecordingStarted`, `RecordingStopped`, `PermissionDenied`, `Failure = 6` |
 | `MediaPath` | `assert()`, `assertSource()` sandbox path validation |

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.1 - 2026-10-06
+
+- Add `CameraMode::PhotoVideo` (3): one session with photo capture and video
+  recording, for a shutter that takes a photo on tap and records while held
+  (the React Native vision-camera photo + video outputs). Android binds
+  Preview + ImageCapture + VideoCapture and falls back to the photo pipeline
+  when the device rejects the combined streams; iOS adds the photo and movie
+  outputs (plus the microphone when authorized).
+- iOS: a record command on a session without the movie output (`Photo` mode)
+  reports `Failure`, as on Android, instead of starting an unattached output.
+
 ## 0.5.0 - 2026-10-05
 
 - iOS: `Media::transcode()` with AVAssetReader/AVAssetWriter (H.264 Main 4.1 /

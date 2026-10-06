@@ -65,7 +65,7 @@ private class CameraHost(context: Context) : FrameLayout(context) {
 
     fun update(v: Map<String, WireValue>) {
         val nextFacing = v.integer("facing", 1)
-        val nextMode = v.integer("mode", 1).coerceIn(1, 2)
+        val nextMode = v.integer("mode", 1).coerceIn(1, 3)
         val nextCapture = v.integer("captureRevision", 0)
         val nextRecord = v.integer("recordRevision", 0)
         val nextStop = v.integer("stopRevision", 0)
@@ -91,13 +91,22 @@ private class CameraHost(context: Context) : FrameLayout(context) {
             val selector = if (facing == 2L) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
             if (mode == 2L) {
                 imageCapture = null
-                val qualitySelector = QualitySelector.from(
-                    Quality.FHD,
-                    FallbackStrategy.lowerQualityOrHigherThan(Quality.FHD),
-                )
-                val recorder = Recorder.Builder().setQualitySelector(qualitySelector).build()
-                videoCapture = VideoCapture.withOutput(recorder)
+                videoCapture = videoUseCase()
                 camera = p.bindToLifecycle(owner, selector, previewUseCase, videoCapture)
+            } else if (mode == 3L) {
+                // Photo + hold-to-record on one session; devices that reject the
+                // combined streams keep the photo pipeline (recording then fails loudly).
+                val photo = ImageCapture.Builder().setFlashMode(nativeFlash(flashMode)).build()
+                val video = videoUseCase()
+                imageCapture = photo
+                camera = runCatching {
+                    videoCapture = video
+                    p.bindToLifecycle(owner, selector, previewUseCase, photo, video)
+                }.getOrElse {
+                    p.unbindAll()
+                    videoCapture = null
+                    p.bindToLifecycle(owner, selector, previewUseCase, photo)
+                }
             } else {
                 videoCapture = null
                 imageCapture = ImageCapture.Builder().setFlashMode(nativeFlash(flashMode)).build()
@@ -105,6 +114,14 @@ private class CameraHost(context: Context) : FrameLayout(context) {
             }
             send(1)
         }.onFailure { send(6, it.message.orEmpty()) } }, ContextCompat.getMainExecutor(context))
+    }
+
+    private fun videoUseCase(): VideoCapture<Recorder> {
+        val qualitySelector = QualitySelector.from(
+            Quality.FHD,
+            FallbackStrategy.lowerQualityOrHigherThan(Quality.FHD),
+        )
+        return VideoCapture.withOutput(Recorder.Builder().setQualitySelector(qualitySelector).build())
     }
 
     private fun takePhoto() {
