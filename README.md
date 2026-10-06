@@ -140,25 +140,153 @@ Platform support: Android API 26+, iOS 15+, PAM Native `>=1.0.35 <2.0.0`.
 
 ## What installation does
 
-`pam add media` resolves the official compatible package, performs a non-mutating Composer preflight, updates the normal `composer.json` and `composer.lock`, refreshes generated native integration when required, and leaves the project ready for `pam doctor` validation.
+`pam add media` (or `pam composer require pushinbr/pam-native-media` followed by `pam doctor --fix`) resolves the official compatible package, performs a non-mutating Composer preflight, updates the normal `composer.json` and `composer.lock`, refreshes generated native integration when required, and leaves the project ready for `pam doctor` validation. The package is a PAM Native plugin (module `media`, view `media.camera`); nothing is added to `pam-native.json`.
 
 Use `pam packages` to inspect availability and `pam remove media` to uninstall the capability safely. Direct Composer commands are an advanced interoperability path; PAM is the supported application workflow.
 
-## API guide
+### Android
 
-| API | Responsibility |
+Merged permissions: `CAMERA` and `RECORD_AUDIO` (only `CameraView` uses them;
+request `PermissionKind::Camera`/`Microphone` before enabling the view).
+Dependencies: CameraX `1.6.1` (`camera-camera2`, `camera-lifecycle`,
+`camera-view`, `camera-video`), Media3 `1.10.1` (`media3-common`,
+`media3-effect`, `media3-transformer`) and ExifInterface `1.4.2`.
+
+### iOS
+
+Frameworks `AVFoundation`, `CoreGraphics`, `CoreMedia`, `CoreVideo`, `ImageIO`,
+`UniformTypeIdentifiers`. Usage strings merged into Info.plist:
+`NSCameraUsageDescription` = "Capture photos and videos." and
+`NSMicrophoneUsageDescription` = "Record audio with videos." Other plugins
+that declare the same keys (`pam-native-webrtc`, `pam-native-camera`) use the
+same strings, because the CLI rejects conflicting values.
+
+## A real example: Zé Chat
+
+Zé Chat compresses every photo before it enters the outbox, like its React
+Native predecessor (`optimizeImageToWebp`): EXIF orientation baked in, longest
+side at most 1920 px and never upscaled, lossy WebP 82. GIFs and any failure
+keep the original file:
+
+```php
+use Pam\Native\FileReference;
+use Pam\Native\Media\{ImageFormat, ImageInfo, ImageResult, Media, ResizeMode};
+
+public static function compressImage(FileReference $file, Closure $done): void
+{
+    if (!str_starts_with($file->mimeType, 'image/') || $file->mimeType === 'image/gif') {
+        $done($file, 0, 0);
+        return;
+    }
+    $destination = 'zechat-outbox/'.bin2hex(random_bytes(12)).'.webp';
+    try {
+        Media::image($file->path)
+            ->resize(1920, 1920, ResizeMode::Contain)
+            ->onlyScaleDown()
+            ->format(ImageFormat::Webp, 82)
+            ->save(
+                $destination,
+                fn (ImageResult $r) => $done(new FileReference($r->path, 'photo.webp', ImageFormat::Webp->mimeType(), $r->bytes), $r->width, $r->height),
+                fn (string $_error) => $done($file, 0, 0),
+            );
+    } catch (InvalidArgumentException) {   // a path outside the sandbox
+        $done($file, 0, 0);
+    }
+}
+
+// Display size after EXIF orientation (ImageInfo already swaps 90°/270°).
+Media::image($file->path)->probe(fn (ImageInfo $i) => $done($i->width, $i->height), fn () => $done(0, 0));
+```
+
+Videos are re-encoded inside the durable upload with
+`pam-native-background-transfer`'s `->transcode(VideoPreset::Adaptive, fallbackToOriginal: true)`,
+which calls this package's transcoder natively. A runnable minimal app is in
+[`example/`](example).
+
+## API reference
+
+All classes live in `Pam\Native\Media`. Native calls return the module request id (`int`).
+
+### `Media`
+
+| Method | Description |
 | --- | --- |
-| `Media` | Probe sandboxed media, generate bounded thumbnails; `transcode()`, `image()`, `thumbnails()`. |
-| `PendingTranscode` / `TranscodeTask` / `TranscodeResult` | Fluent video transcode, cancellation and result. |
-| `PendingImage` / `ImageInfo` / `ImageResult` | Image resize/crop/rotate/flip/encode and EXIF-aware probe. |
-| `Thumbnail` / `ThumbnailResult` | Batched image/video thumbnails. |
-| `VideoPreset`, `ResizeMode`, `ImageFormat`, `FlipDirection`, `ExifOrientation` | Sequential integer-backed enums (EXIF values for orientation). |
-| `MediaInfo` | Read normalized type, dimensions, duration, and orientation. |
-| `CameraView` | Render a lifecycle-aware native photo/video camera. |
-| `CameraCapture` | Receive sandbox-relative capture metadata. |
-| `ThumbnailFormat` | Choose JPEG, PNG, or supported output encoding. |
+| `Media::transcode(string $source): PendingTranscode` | Video transcode builder. |
+| `Media::image(string $source): PendingImage` | Image pipeline builder. |
+| `Media::thumbnails(list<Thumbnail> $requests, Closure(list<ThumbnailResult>) $then)` | 1–100 thumbnails in one call, results in request order. |
+| `(new Media())->probe(string $path, Closure(?MediaInfo, ?string) $complete)` | Type, size, dimensions, duration, rotation. |
+| `(new Media())->thumbnail(string $source, string $destination, int $maxWidth, int $maxHeight, Closure(?string, ?string) $complete, ThumbnailFormat $format = Jpeg, int $quality = 85, int $timeMillis = 0)` | One thumbnail (0.3 API). |
 
-All coded states, kinds, and variants are sequential integer-backed enums. Use enum cases in application code; do not depend on raw wire numbers.
+### `PendingTranscode` / `TranscodeTask` / `TranscodeResult`
+
+`to(string $destination)` (required, must differ from the source),
+`preset(VideoPreset)` (default `Adaptive`), `maxBitrate(int $bitsPerSecond)`
+(100 kbps–50 Mbps), `fastStart(bool = true)`, `withoutAudio()`,
+`progress(Closure(float))` (0.0–1.0), `options()`,
+`run(Closure(TranscodeResult) $then, ?Closure(string) $failed = null): TranscodeTask`.
+`TranscodeTask`: `cancel()`, `finished()`. `TranscodeResult` (readonly):
+`path`, `mimeType`, `width`, `height`, `durationMillis`, `bytes`, `bitrate`,
+`fastStart`.
+
+### `PendingImage` / `ImageResult` / `ImageInfo`
+
+`resize(int $width, int $height, ResizeMode $mode = Contain)` (1–16384, `0` =
+automatic), `onlyScaleDown(bool = true)`, `crop(int $x, int $y, int $width, int $height)`,
+`rotate(int $degrees = 90)` (multiples of 90, negative = counter-clockwise),
+`flip(FlipDirection = Horizontal)`, `format(ImageFormat, int $quality = 85)`
+(1–100; default JPEG 85), `payload(string $destination)`,
+`save(string $destination, Closure(ImageResult) $then, ?Closure(string) $failed = null)`,
+`probe(Closure(ImageInfo) $then, ?Closure(string) $failed = null)`.
+`ImageResult`: `path`, `width`, `height`, `bytes`, `mimeType`. `ImageInfo`:
+`width`, `height` (display, after orientation), `storedWidth`,
+`storedHeight`, `orientation` (`ExifOrientation`), `mimeType`, `bytes`.
+
+### `Thumbnail` / `ThumbnailResult`
+
+`Thumbnail::make(string $source, string $destination)` (sandbox path or HTTPS
+video URL), `size(int $maxWidth, int $maxHeight)` (1–8192), `at(int $timeMillis)`,
+`format(ThumbnailFormat, int $quality = 80)`, `source()`, `toWire()`.
+`ThumbnailResult`: `source`, `path` (`null` on failure), `width`, `height`,
+`error`, `succeeded()`.
+
+### `CameraView` (`Renderable`, immutable)
+
+`make()`, `facing(CameraFacing)` (default `Back`), `mode(CameraMode)` (default
+`Photo`), `flash(CameraFlashMode)`, `enabled(bool = true)`,
+`captureRevision(int)`, `recordRevision(int)`, `stopRevision(int)`,
+`maxDuration(int $seconds)` (1–600, default 60), `audio(bool = true)`,
+`onEvent(Closure(CameraEventKind, ?CameraCapture, string $message))`,
+`toElement()` (a `CustomView` of kind `media.camera`). Each revision bump runs
+its command once. `CameraCapture` (readonly): `path`, `mimeType`, `width`,
+`height`, `durationMillis`.
+
+### Value types and enums (int-backed)
+
+| Type | Members |
+| --- | --- |
+| `MediaInfo` | `kind`, `mimeType`, `bytes`, `width`, `height`, `durationMillis`, `orientationDegrees` |
+| `MediaKind` | `Image = 1`, `Audio = 2`, `Video = 3`, `Unknown = 4` |
+| `VideoPreset` | `Compact480p = 1`, `Chat720p = 2`, `Chat1080p = 3`, `Adaptive = 4` |
+| `ResizeMode` | `Contain = 1`, `Cover = 2`, `Stretch = 3` |
+| `ImageFormat` | `Jpeg = 1`, `Png = 2`, `Webp = 3`; `mimeType()` |
+| `ThumbnailFormat` | `Jpeg = 1`, `Png = 2`, `Webp = 3` |
+| `FlipDirection` | `Horizontal = 1`, `Vertical = 2` |
+| `ExifOrientation` | EXIF values `Normal = 1` … `Rotate270 = 8`; `degrees()`, `swapsDimensions()` |
+| `CameraFacing` | `Back = 1`, `Front = 2` |
+| `CameraMode` | `Photo = 1`, `Video = 2` |
+| `CameraFlashMode` | `Off = 1`, `On = 2`, `Auto = 3` |
+| `CameraEventKind` | `Ready = 1`, `Captured`, `RecordingStarted`, `RecordingStopped`, `PermissionDenied`, `Failure = 6` |
+| `MediaPath` | `assert()`, `assertSource()` sandbox path validation |
+
+### Errors
+
+Builders throw `InvalidArgumentException` for absolute or traversal paths,
+invalid HTTPS URLs, out-of-range sizes, qualities, bitrates and thumbnail
+times, crop rectangles outside the image, rotations that are not multiples of
+90, a batch outside 1–100 requests, non-`Thumbnail` batch items and a
+transcode destination equal to its source. `run()` without `to()` throws
+`LogicException`. Native failures go to the `$failed`/`$complete` callbacks
+(or `ThumbnailResult::$error`) and never throw.
 
 ## Tests
 
@@ -181,7 +309,12 @@ All coded states, kinds, and variants are sequential integer-backed enums. Use e
 
 ## Compatibility and support
 
-This package targets PAM Native `0.8–1.x`, Android API 26+, and iOS 15+ unless a platform-specific section above states a stricter requirement. Platform SDKs, credentials, entitlements, physical hardware, and store configuration remain application responsibilities.
+| `pushinbr/pam-native-media` | `pushinbr/pam-native` | Android | iOS |
+| --- | --- | --- | --- |
+| 0.5.x | `>=1.0.35 <2.0.0` (tested with 1.14.x) | API 26+ | 15+ (transcode, image pipeline, batches) |
+| 0.4.x | `>=1.0.35 <2.0.0` | API 26+ | Probe, thumbnails and camera only |
+
+This package targets PAM Native `>=1.0.35 <2.0.0`, Android API 26+, and iOS 15+ unless a platform-specific section above states a stricter requirement. Platform SDKs, credentials, entitlements, physical hardware, and store configuration remain application responsibilities.
 
 - [PAM documentation](https://push-in.github.io/pam-docs/introduction/)
 - [PAM Native overview](https://push-in.github.io/pam-docs/native/overview/)
