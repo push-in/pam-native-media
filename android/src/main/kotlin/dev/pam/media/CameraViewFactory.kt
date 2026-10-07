@@ -39,7 +39,11 @@ class CameraViewFactory(@Suppress("UNUSED_PARAMETER") context: Context) : Native
 private class CameraHost(context: Context) : FrameLayout(context) {
     var emitter: ((ByteArray) -> Unit)? = null
     private val preview = PreviewView(context).apply {
-        implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+        // SurfaceView preview (react-native-vision-camera's default): the
+        // camera buffers reach the display compositor with their own colour
+        // space and range. The TextureView path re-samples them through GL
+        // and rendered a flatter, darker preview than the captured photo.
+        implementationMode = PreviewView.ImplementationMode.PERFORMANCE
         scaleType = PreviewView.ScaleType.FILL_CENTER
     }
     private val executor = Executors.newSingleThreadExecutor()

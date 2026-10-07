@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.3 - 2026-10-07
+
+- Android camera preview renders through a `SurfaceView`
+  (`PreviewView.ImplementationMode.PERFORMANCE`, react-native-vision-camera's
+  default): the camera buffers reach the compositor with their own colour
+  space and range. The `TextureView` path re-sampled them through GL and
+  showed a flatter, washed-out frame; on a Galaxy S10 the preview luminance
+  over the same static scene moved from +9.1 to -6.6 levels against the React
+  Native reference, with matching contrast. iOS already draws through
+  `AVCaptureVideoPreviewLayer`.
+
 ## 0.5.2 - 2026-10-06
 
 - Add optional `CameraView::recordingZoom(target, durationMillis)` and native
