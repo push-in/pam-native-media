@@ -25,6 +25,13 @@ internal class CameraRecordingZoom {
         }
     }
 
+    /** A user pinch or zoom reset takes over: stop the ramp and keep the current ratio. */
+    fun cancel() {
+        animator?.cancel()
+        animator = null
+        camera = null
+    }
+
     fun reset() {
         animator?.cancel()
         animator = null

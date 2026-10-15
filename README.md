@@ -159,6 +159,49 @@ these values affects the next recording. Existing camera event integers stay
 unchanged. Android uses CameraX with a native animator, and iOS uses the
 AVFoundation zoom ramp; no animation frames cross the PHP bridge.
 
+### Pinch zoom, zoom reset and double tap
+
+Gestures are opt-in and handled natively; no gesture frames cross the bridge:
+
+```php
+$camera = CameraView::make()
+    ->pinchZoom()                       // pinch on the preview
+    ->maxZoom(8.0)                      // default 16; the lens maximum still applies
+    ->zoomResetRevision($zoomReset)     // bump to return to 1x
+    ->doubleTapFlip()                   // double tap switches back/front lens
+    ->onEvent(function (CameraEventKind $event, ?CameraCapture $capture, string $message, ?CameraLens $lens): void {
+        if ($event === CameraEventKind::Ready) {
+            // $lens->facing, $lens->minZoom, $lens->maxZoom (effective, maxZoom applied)
+        }
+    });
+```
+
+- **Pinch** (`pinchZoom`, default off): zoom = ratio at gesture start × scale
+  accumulated since the start, clamped to the lens minimum and
+  `min(maxZoom, lens maximum)`. Android uses `ScaleGestureDetector` with CameraX
+  `setZoomRatio`; iOS uses `UIPinchGestureRecognizer` with `videoZoomFactor`.
+  A pinch during a `recordingZoom()` ramp cancels the ramp and keeps the user's
+  zoom (it is not reset to 1× when that recording stops).
+- **Reset** (`zoomResetRevision`): each change after the first render sets zoom
+  to 1× clamped to the effective range and cancels a running recording ramp.
+- **Ready** (`CameraEventKind::Ready`, 1) now carries a `CameraLens` with the
+  facing and the effective `minZoom`/`maxZoom`. It is sent whenever the camera
+  is bound (again after a lens or mode change).
+- **Double tap** (`CameraEventKind::DoubleTap`, 7): reported when
+  `doubleTapFlip()` or `doubleTapEvents()` is on. With `doubleTapFlip()` the
+  view switches lens natively (not while recording, which would end the clip);
+  the event then reports the new facing with `minZoom`/`maxZoom` `0`, and the
+  new range follows in `Ready`. The host's `facing()` value takes over again on
+  its next change.
+- Touches pass through the camera view unless `pinchZoom`, `doubleTapFlip` or
+  `doubleTapEvents` is on. Detectors/recognizers exist only while the view is
+  enabled and one of them is on, and are dropped on disable and release.
+
+Direct `media.camera` hosts use the additive `pinchZoom`, `doubleTapFlip`,
+`doubleTapEvents` (flags), `maxZoom` (decimal) and `zoomResetRevision`
+(integer) properties; events gain `facing` (integer) and `minZoom`/`maxZoom`
+(decimals). `onEvent` handlers with three parameters keep working.
+
 Platform support: Android API 26+, iOS 15+, PAM Native `>=1.0.35 <2.0.0`.
 
 
@@ -279,10 +322,15 @@ video URL), `size(int $maxWidth, int $maxHeight)` (1–8192), `at(int $timeMilli
 `Photo`), `flash(CameraFlashMode)`, `enabled(bool = true)`,
 `captureRevision(int)`, `recordRevision(int)`, `stopRevision(int)`,
 `maxDuration(int $seconds)` (1–600, default 60), `audio(bool = true)`,
-`onEvent(Closure(CameraEventKind, ?CameraCapture, string $message))`,
+`recordingZoom(float $target, int $durationMillis = 1600)`,
+`pinchZoom(bool = true)`, `maxZoom(float)` (finite, >= 1, default 16),
+`zoomResetRevision(int)`, `doubleTapFlip(bool = true)`,
+`doubleTapEvents(bool = true)`,
+`onEvent(Closure(CameraEventKind, ?CameraCapture, string $message, ?CameraLens $lens))`,
 `toElement()` (a `CustomView` of kind `media.camera`). Each revision bump runs
 its command once. `CameraCapture` (readonly): `path`, `mimeType`, `width`,
-`height`, `durationMillis`.
+`height`, `durationMillis`. `CameraLens` (readonly, `Ready`/`DoubleTap` only):
+`facing`, `minZoom`, `maxZoom` (`0` when not known yet).
 
 ### Value types and enums (int-backed)
 
@@ -299,7 +347,7 @@ its command once. `CameraCapture` (readonly): `path`, `mimeType`, `width`,
 | `CameraFacing` | `Back = 1`, `Front = 2` |
 | `CameraMode` | `Photo = 1`, `Video = 2`, `PhotoVideo = 3` |
 | `CameraFlashMode` | `Off = 1`, `On = 2`, `Auto = 3` |
-| `CameraEventKind` | `Ready = 1`, `Captured`, `RecordingStarted`, `RecordingStopped`, `PermissionDenied`, `Failure = 6` |
+| `CameraEventKind` | `Ready = 1`, `Captured`, `RecordingStarted`, `RecordingStopped`, `PermissionDenied`, `Failure = 6`, `DoubleTap = 7` |
 | `MediaPath` | `assert()`, `assertSource()` sandbox path validation |
 
 ### Errors
@@ -314,7 +362,7 @@ transcode destination equal to its source. `run()` without `to()` throws
 
 ## Tests
 
-`composer test` runs the PHP contract suite. Android JVM tests (`android/src/test`: resize geometry, fast-start rewriting, options) and instrumented tests (`android/src/androidTest`: EXIF pipeline, thumbnails, Media3 transcode, cross-plugin entry point) run from a PAM Android host that includes this plugin with `testDebugUnitTest` / `connectedDebugAndroidTest`. JVM tests require JUnit 4 and the JVM `org.json` implementation on the test classpath (the Android SDK JSON stub cannot execute parser tests).
+`composer test` runs the PHP contract suite. Android JVM tests (`android/src/test`: resize geometry, fast-start rewriting, options, recording and gesture zoom math) and instrumented tests (`android/src/androidTest`: EXIF pipeline, thumbnails, Media3 transcode, cross-plugin entry point) run from a PAM Android host that includes this plugin with `testDebugUnitTest` / `connectedDebugAndroidTest`. JVM tests require JUnit 4 and the JVM `org.json` implementation on the test classpath (the Android SDK JSON stub cannot execute parser tests).
 
 ## Production checklist
 

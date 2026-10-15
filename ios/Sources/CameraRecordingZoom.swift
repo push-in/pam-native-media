@@ -29,6 +29,19 @@ final class CameraRecordingZoom: @unchecked Sendable {
         }
     }
 
+    /// A user pinch or zoom reset takes over: stop the ramp and keep the current factor.
+    func cancel() {
+        guard let device else { return }
+        self.device = nil
+        do {
+            try device.lockForConfiguration()
+            defer { device.unlockForConfiguration() }
+            device.cancelVideoZoomRamp()
+        } catch {
+            // The next zoom write cancels the ramp as well.
+        }
+    }
+
     func reset() {
         guard let device else { return }
         self.device = nil

@@ -47,4 +47,76 @@ $test('recording zoom rejects invalid native animation parameters', static funct
         }
     }
 });
+$test('gesture zoom properties default off and encode as native view properties', static function (): void {
+    $properties = static fn (CameraView $view): array => Wire::decodeMap(
+        $view->toElement()->properties()[Pam\Native\PropKey::HostProperties->value]->bytes,
+    );
+    $camera = CameraView::make();
+    $defaults = $properties($camera);
+    if ($defaults['pinchZoom'] !== false || $defaults['maxZoom'] !== 16.0 || $defaults['zoomResetRevision'] !== 0
+        || $defaults['doubleTapFlip'] !== false || $defaults['doubleTapEvents'] !== false) {
+        throw new RuntimeException('Gesture defaults changed or are not opt-in');
+    }
+    $active = $properties($camera->pinchZoom()->maxZoom(8.0)->zoomResetRevision(3)->doubleTapFlip()->doubleTapEvents()->recordingZoom(2.8));
+    if ($active['pinchZoom'] !== true || $active['maxZoom'] !== 8.0 || $active['zoomResetRevision'] !== 3
+        || $active['doubleTapFlip'] !== true || $active['doubleTapEvents'] !== true || $active['zoomTarget'] !== 2.8) {
+        throw new RuntimeException('Gesture zoom contract mismatch');
+    }
+    if ($properties($camera)['pinchZoom'] !== false || $properties($camera->zoomResetRevision(-4))['zoomResetRevision'] !== 0) {
+        throw new RuntimeException('Gesture builders mutated or accepted a negative revision');
+    }
+    foreach ([NAN, INF, 0.5, 0.0] as $invalid) {
+        try {
+            $camera->maxZoom($invalid);
+            throw new RuntimeException('Invalid max zoom was accepted');
+        } catch (InvalidArgumentException) {
+        }
+    }
+});
+$test('ready and double tap events decode the lens and zoom range', static function (): void {
+    if (CameraEventKind::Ready->value !== 1 || CameraEventKind::Failure->value !== 6 || CameraEventKind::DoubleTap->value !== 7) {
+        throw new RuntimeException('Camera event integers were renumbered');
+    }
+    $seen = [];
+    $element = CameraView::make()->onEvent(static function (CameraEventKind $kind, ?Pam\Native\Media\CameraCapture $capture, string $message, ?Pam\Native\Media\CameraLens $lens = null) use (&$seen): void {
+        $seen[] = [$kind, $capture, $lens];
+    })->toElement();
+    $emit = $element->events()[Pam\Native\EventKind::Native->value];
+    $emit(Wire::map(['event' => 1, 'facing' => 2, 'minZoom' => 1.0, 'maxZoom' => 8.0]));
+    $emit(Wire::map(['event' => 7, 'facing' => 1, 'minZoom' => 0.0, 'maxZoom' => 0.0]));
+    $emit(Wire::map(['event' => 1]));
+    $emit(Wire::map(['event' => 2, 'path' => 'captures/a.jpg', 'mimeType' => 'image/jpeg', 'facing' => 1, 'minZoom' => 1.0, 'maxZoom' => 8.0]));
+    [$ready, $tap, $legacy, $captured] = $seen;
+    if ($ready[0] !== CameraEventKind::Ready || $ready[2]?->facing !== CameraFacing::Front || $ready[2]->minZoom !== 1.0 || $ready[2]->maxZoom !== 8.0) {
+        throw new RuntimeException('Ready lens mismatch');
+    }
+    if ($tap[0] !== CameraEventKind::DoubleTap || $tap[2]?->facing !== CameraFacing::Back || $tap[2]->maxZoom !== 0.0) {
+        throw new RuntimeException('DoubleTap lens mismatch');
+    }
+    if ($legacy[2]?->facing !== CameraFacing::Back || $legacy[2]->maxZoom !== 0.0) {
+        throw new RuntimeException('Ready from an older native host must still decode');
+    }
+    if ($captured[0] !== CameraEventKind::Captured || $captured[1]?->path !== 'captures/a.jpg' || $captured[2] !== null) {
+        throw new RuntimeException('Capture events must not carry a lens');
+    }
+    $legacyHandler = CameraView::make()->onEvent(static function (CameraEventKind $kind, ?Pam\Native\Media\CameraCapture $capture, string $message): void {
+    })->toElement()->events()[Pam\Native\EventKind::Native->value];
+    $legacyHandler(Wire::map(['event' => 1, 'minZoom' => 1.0, 'maxZoom' => 8.0]));
+});
+$test('gesture zoom is wired on both platforms', static function (): void {
+    $root = dirname(__DIR__);
+    $android = (string) file_get_contents($root.'/android/src/main/kotlin/dev/pam/media/CameraViewFactory.kt');
+    $ios = (string) file_get_contents($root.'/ios/Sources/CameraViewFactory.swift');
+    foreach (['"pinchZoom"', '"maxZoom"', '"zoomResetRevision"', '"doubleTapFlip"', '"doubleTapEvents"', '"minZoom"'] as $key) {
+        if (!str_contains($android, $key) || !str_contains($ios, $key)) {
+            throw new RuntimeException("$key is not handled on both platforms");
+        }
+    }
+    if (!str_contains($android, 'ScaleGestureDetector') || !str_contains($android, 'recordingZoom.cancel()') || !str_contains($android, 'tapDetector=null')) {
+        throw new RuntimeException('Android pinch does not take over the recording ramp or leaks detectors');
+    }
+    if (!str_contains($ios, 'UIPinchGestureRecognizer') || !str_contains($ios, 'removeGestureRecognizer') || !str_contains($ios, 'self.recordingZoom.cancel()')) {
+        throw new RuntimeException('iOS pinch does not take over the recording ramp or detach recognizers');
+    }
+});
 $failed=0;foreach($tests as$n=>$f){try{$f();fwrite(STDOUT,"PASS $n\n");}catch(Throwable$e){$failed++;fwrite(STDERR,"FAIL $n: {$e->getMessage()}\n");}}fwrite(STDOUT,count($tests)." tests, $failed failures\n");exit($failed?1:0);

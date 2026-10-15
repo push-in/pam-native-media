@@ -3,7 +3,9 @@ package dev.pam.media
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.view.GestureDetector
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 import android.widget.FrameLayout
 import androidx.camera.core.Camera
@@ -69,10 +71,28 @@ private class CameraHost(context: Context) : FrameLayout(context) {
     private var stopTask: Runnable? = null
     private var released = false
     private var bindRevision = 0L
+    private var requestedFacing = 1L
+    private var pinchZoom = false
+    private var doubleTapFlip = false
+    private var doubleTapEvents = false
+    private var maxZoom = CameraZoomRange.DEFAULT_MAX_ZOOM
+    private var zoomResetRevision: Long? = null
+    private val pinch = PinchZoomTracker()
+    private var scaleDetector: ScaleGestureDetector? = null
+    private var tapDetector: GestureDetector? = null
 
     init { addView(preview, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)); post(::bind) }
 
-    override fun dispatchTouchEvent(event: MotionEvent): Boolean = false
+    // Touches pass through unless a gesture is opted in; detectors exist only while enabled.
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        val scale = scaleDetector
+        val taps = tapDetector
+        if (released || !enabled || (scale == null && taps == null)) return false
+        scale?.onTouchEvent(event)
+        taps?.onTouchEvent(event)
+        if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) pinch.end()
+        return true
+    }
 
     fun update(v: Map<String, WireValue>) {
         if (released) return
@@ -85,19 +105,86 @@ private class CameraHost(context: Context) : FrameLayout(context) {
         flashMode = v.integer("flashMode", 1); maxDurationSeconds = v.integer("maxDurationSeconds", 60).coerceIn(1, 600)
         zoomTarget = v.decimal("zoomTarget", 1.0).toFloat().takeIf { it.isFinite() }?.coerceAtLeast(1f) ?: 1f
         zoomDurationMillis = v.integer("zoomDurationMillis", 0).coerceIn(0, 600_000)
+        pinchZoom = v.flag("pinchZoom", false)
+        doubleTapFlip = v.flag("doubleTapFlip", false)
+        doubleTapEvents = v.flag("doubleTapEvents", false)
+        maxZoom = v.decimal("maxZoom", CameraZoomRange.DEFAULT_MAX_ZOOM.toDouble()).toFloat()
+            .takeIf { it.isFinite() && it > 0f } ?: CameraZoomRange.DEFAULT_MAX_ZOOM
+        val nextZoomReset = v.integer("zoomResetRevision", 0)
+        val previousZoomReset = zoomResetRevision
+        zoomResetRevision = nextZoomReset
+        updateGestures()
         if (!enabled) stopRecording()
-        if (nextFacing != facing) { facing = nextFacing; bind() }
+        // A native double-tap flip owns `facing` until the host requests a different lens.
+        if (nextFacing != requestedFacing) { requestedFacing = nextFacing; if (nextFacing != facing) { facing = nextFacing; bind() } }
         if (nextMode != mode) { mode = nextMode; bind() }
         imageCapture?.flashMode = nativeFlash(flashMode)
         camera?.cameraControl?.enableTorch(recording != null && flashMode == 2L)
         if (nextCapture > captureRevision) { captureRevision = nextCapture; takePhoto() }
         if (nextRecord > recordRevision) { recordRevision = nextRecord; startRecording() }
         if (nextStop > stopRevision) { stopRevision = nextStop; stopRecording() }
+        if (previousZoomReset != null && nextZoomReset != previousZoomReset) resetZoom()
+    }
+
+    private fun zoomRange(active: Camera): CameraZoomRange? =
+        active.cameraInfo.zoomState.value?.let { CameraZoomRange.create(it.minZoomRatio, it.maxZoomRatio, maxZoom) }
+
+    private fun resetZoom() {
+        recordingZoom.cancel()
+        pinch.end()
+        val active = camera ?: return
+        val range = zoomRange(active) ?: return
+        active.cameraControl.setZoomRatio(range.resetValue())
+    }
+
+    private fun updateGestures() {
+        val active = enabled && !released
+        if (!active || !pinchZoom) { scaleDetector = null; pinch.end() }
+        else if (scaleDetector == null) scaleDetector = ScaleGestureDetector(context, PinchListener()).apply { isQuickScaleEnabled = false }
+        if (!active || !(doubleTapFlip || doubleTapEvents)) tapDetector = null
+        else if (tapDetector == null) tapDetector = GestureDetector(context, DoubleTapListener())
+    }
+
+    private inner class PinchListener : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+        override fun onScaleBegin(detector: ScaleGestureDetector): Boolean {
+            val active = camera ?: return false
+            val current = active.cameraInfo.zoomState.value?.zoomRatio ?: return false
+            // The user's pinch overrides a running recording zoom ramp and keeps its ratio afterwards.
+            recordingZoom.cancel()
+            pinch.begin(current)
+            parent?.requestDisallowInterceptTouchEvent(true)
+            return true
+        }
+
+        override fun onScale(detector: ScaleGestureDetector): Boolean {
+            val active = camera ?: return false
+            val range = zoomRange(active) ?: return false
+            pinch.scale(detector.scaleFactor, range)?.let(active.cameraControl::setZoomRatio)
+            return true
+        }
+
+        override fun onScaleEnd(detector: ScaleGestureDetector) = pinch.end()
+    }
+
+    private inner class DoubleTapListener : GestureDetector.SimpleOnGestureListener() {
+        override fun onDown(event: MotionEvent): Boolean = true
+
+        override fun onDoubleTap(event: MotionEvent): Boolean {
+            if (released || !enabled) return false
+            // Rebinding would end the clip, so an active recording keeps its lens.
+            val flip = doubleTapFlip && recording == null
+            // The new lens reports its range in the Ready that follows; the event leaves it at 0.
+            val zoom = if (flip) null else camera?.let(::zoomRange)
+            if (flip) { facing = if (facing == 2L) 1L else 2L; bind() }
+            send(7, zoom = zoom)
+            return true
+        }
     }
 
     private fun bind() {
         if (!enabled || released) return
         stopRecording()
+        pinch.end()
         val revision = ++bindRevision
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) { send(5, "Camera permission is required"); return }
         val owner = context as? LifecycleOwner ?: run { send(6, "Camera host has no lifecycle"); return }
@@ -130,7 +217,7 @@ private class CameraHost(context: Context) : FrameLayout(context) {
                 imageCapture = ImageCapture.Builder().setFlashMode(nativeFlash(flashMode)).build()
                 camera = p.bindToLifecycle(owner, selector, previewUseCase, imageCapture)
             }
-            send(1)
+            send(1, zoom = camera?.let(::zoomRange) ?: CameraZoomRange.create(1f, 1f, maxZoom))
         }.onFailure { send(6, it.message.orEmpty()) } }, ContextCompat.getMainExecutor(context))
     }
 
@@ -203,8 +290,9 @@ private class CameraHost(context: Context) : FrameLayout(context) {
     }
     private fun capturePath(file: File) = "captures/${file.name}"
     private fun nativeFlash(value: Long) = when(value){2L->ImageCapture.FLASH_MODE_ON;3L->ImageCapture.FLASH_MODE_AUTO;else->ImageCapture.FLASH_MODE_OFF}
-    private fun send(event:Long,message:String="",path:String="",mime:String="",duration:Long=0)=post{emitter?.invoke(WireMap.encode(mapOf("event" to WireValue.Integer(event),"message" to WireValue.Text(message),"path" to WireValue.Text(path),"mimeType" to WireValue.Text(mime),"width" to WireValue.Integer(0),"height" to WireValue.Integer(0),"durationMillis" to WireValue.Integer(duration))))}
-    fun release(){released=true;++bindRevision;++recordingRevision;cancelStopTask();recordingZoom.reset();emitter=null;recording?.close();recording=null;provider?.unbindAll();provider=null;camera=null;executor.shutdownNow()}
+    // Ready (1) and DoubleTap (7) carry the lens and effective zoom range; other events report 0 for the range.
+    private fun send(event:Long,message:String="",path:String="",mime:String="",duration:Long=0,zoom:CameraZoomRange?=null){val lens=facing;post{emitter?.invoke(WireMap.encode(mapOf("event" to WireValue.Integer(event),"message" to WireValue.Text(message),"path" to WireValue.Text(path),"mimeType" to WireValue.Text(mime),"width" to WireValue.Integer(0),"height" to WireValue.Integer(0),"durationMillis" to WireValue.Integer(duration),"facing" to WireValue.Integer(lens),"minZoom" to WireValue.Decimal((zoom?.minimum ?: 0f).toDouble()),"maxZoom" to WireValue.Decimal((zoom?.maximum ?: 0f).toDouble()))))}}
+    fun release(){released=true;scaleDetector=null;tapDetector=null;pinch.end();++bindRevision;++recordingRevision;cancelStopTask();recordingZoom.reset();emitter=null;recording?.close();recording=null;provider?.unbindAll();provider=null;camera=null;executor.shutdownNow()}
     private fun Map<String,WireValue>.integer(key:String,fallback:Long)=(get(key)as?WireValue.Integer)?.value?:fallback
     private fun Map<String,WireValue>.flag(key:String,fallback:Boolean)=(get(key)as?WireValue.Flag)?.value?:fallback
     private fun Map<String,WireValue>.decimal(key:String,fallback:Double)=when(val value=get(key)){is WireValue.Decimal->value.value;is WireValue.Integer->value.value.toDouble();else->fallback}

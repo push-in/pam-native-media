@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.6.0 - unreleased
+
+- Add opt-in native pinch zoom to `CameraView` (`pinchZoom()`, property
+  `pinchZoom`): Android `ScaleGestureDetector` + CameraX `setZoomRatio`, iOS
+  `UIPinchGestureRecognizer` + `videoZoomFactor`. Zoom = start ratio × scale
+  since the gesture began, clamped to the lens minimum and
+  `min(maxZoom, lens maximum)`.
+- Add `maxZoom(float)` (property `maxZoom`, default 16) and
+  `zoomResetRevision(int)` (property `zoomResetRevision`): each change after
+  the first render resets zoom to 1× clamped to the effective range.
+- `CameraEventKind::Ready` (1) now carries `facing`, `minZoom` and `maxZoom`
+  (effective range), decoded as the new `CameraLens` 4th `onEvent` argument;
+  it is re-sent after every lens/mode rebind.
+- Add `CameraEventKind::DoubleTap = 7` with `doubleTapEvents()` and
+  `doubleTapFlip()` (properties `doubleTapEvents`, `doubleTapFlip`): the flip
+  switches back/front natively, except while recording.
+- A pinch during the recording zoom ramp cancels the ramp and keeps the user's
+  zoom; recording zoom without gestures behaves as in 0.5.2.
+- Touches still pass through the view unless a gesture is enabled; detectors
+  and recognizers exist only while enabled and are dropped on release.
+- Append-only protocol: no event or enum value was renumbered and all new
+  properties default to the previous behaviour. Pure zoom math has Android JVM
+  tests and a Swift contract (`tests/ios-camera-zoom`, run in CI on macOS).
+- Mac checklist (iOS was not compiled for this entry; verify on an iPhone
+  before tagging):
+  - Build a PAM host with the plugin in Xcode; `CameraViewFactory.swift`,
+    `CameraZoomRange.swift` and `CameraRecordingZoom.swift` compile without
+    warnings; run `tests/ios-camera-zoom` with `xcrun swiftc` (CI job).
+  - `pinchZoom()`: pinch in/out on the back lens moves smoothly, stops at 1×
+    (or the lens minimum) and at `min(maxZoom, device max)`; with
+    `maxZoom(2)` it stops at 2×; pinching back from a clamp reacts at once.
+  - `zoomResetRevision`: first render does not change zoom; each bump returns
+    to 1×, also in the middle of a recording ramp.
+  - `Ready`: logged once after start with the effective `minZoom`/`maxZoom`
+    and again after `facing()` changes or a double-tap flip.
+  - `doubleTapEvents()`: double tap reports `DoubleTap` without flipping;
+    single taps on overlaid controls still work.
+  - `doubleTapFlip()`: double tap switches lens and reports the new facing;
+    while recording it only reports the event and the clip continues; a later
+    `facing()` change from PHP still applies.
+  - `recordingZoom(2.8, 1600)` without touching: ramp runs and resets on stop
+    as in 0.5.2; pinching during the ramp stops it, keeps the pinched zoom
+    and the stop does not snap back to 1×.
+  - Disable the view and release it: no gesture recognizers remain
+    (Instruments/Memory Graph), no zoom writes after release.
+
 ## 0.5.3 - 2026-10-07
 
 - Android camera preview renders through a `SurfaceView`

@@ -24,6 +24,13 @@ jobs:
             tests/ios-thumbnail/main.swift \
             -o "${RUNNER_TEMP}/pam-media-ios-thumbnail-contracts"
           "${RUNNER_TEMP}/pam-media-ios-thumbnail-contracts"
+      - name: Run Swift camera zoom contracts
+        run: |
+          xcrun swiftc \
+            ios/Sources/CameraZoomRange.swift \
+            tests/ios-camera-zoom/main.swift \
+            -o "${RUNNER_TEMP}/pam-media-ios-camera-zoom-contracts"
+          "${RUNNER_TEMP}/pam-media-ios-camera-zoom-contracts"
 
   php:
     runs-on: ubuntu-24.04
