@@ -101,6 +101,7 @@ private class CameraHost(context: Context) : FrameLayout(context) {
         val nextCapture = v.integer("captureRevision", 0)
         val nextRecord = v.integer("recordRevision", 0)
         val nextStop = v.integer("stopRevision", 0)
+        val wasEnabled = enabled
         enabled = v.flag("enabled", true); audioEnabled = v.flag("audioEnabled", true)
         flashMode = v.integer("flashMode", 1); maxDurationSeconds = v.integer("maxDurationSeconds", 60).coerceIn(1, 600)
         zoomTarget = v.decimal("zoomTarget", 1.0).toFloat().takeIf { it.isFinite() }?.coerceAtLeast(1f) ?: 1f
@@ -118,6 +119,11 @@ private class CameraHost(context: Context) : FrameLayout(context) {
         // A native double-tap flip owns `facing` until the host requests a different lens.
         if (nextFacing != requestedFacing) { requestedFacing = nextFacing; if (nextFacing != facing) { facing = nextFacing; bind() } }
         if (nextMode != mode) { mode = nextMode; bind() }
+        // Hosts gate the camera on its permission (`enabled` false until granted):
+        // the init bind() was skipped, so enabling must bind; disabling releases
+        // the device so nothing keeps the camera open unseen.
+        if (enabled && !wasEnabled && camera == null) bind()
+        if (!enabled && wasEnabled && recording == null) unbind()
         imageCapture?.flashMode = nativeFlash(flashMode)
         camera?.cameraControl?.enableTorch(recording != null && flashMode == 2L)
         if (nextCapture > captureRevision) { captureRevision = nextCapture; takePhoto() }
@@ -179,6 +185,16 @@ private class CameraHost(context: Context) : FrameLayout(context) {
             send(7, zoom = zoom)
             return true
         }
+    }
+
+    private fun unbind() {
+        ++bindRevision
+        recordingZoom.cancel()
+        pinch.end()
+        provider?.unbindAll()
+        camera = null
+        imageCapture = null
+        videoCapture = null
     }
 
     private fun bind() {
