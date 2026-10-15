@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Android `CameraView`: a view created with `enabled=false` (hosts that gate
+  the camera on its permission) never bound the camera when `enabled` turned
+  true: black preview and no camera client in `dumpsys media.camera`. Enabling
+  now binds; disabling (outside a recording) unbinds, so a hidden camera does
+  not keep the device open. iOS keeps its session running while disabled
+  (unchanged; verify on an iPhone).
+
 ## 0.6.0 - 2026-10-14
 
 - Add opt-in native pinch zoom to `CameraView` (`pinchZoom()`, property
