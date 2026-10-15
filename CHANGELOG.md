@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.0 - unreleased
+## 0.6.0 - 2026-10-14
 
 - Add opt-in native pinch zoom to `CameraView` (`pinchZoom()`, property
   `pinchZoom`): Android `ScaleGestureDetector` + CameraX `setZoomRatio`, iOS
