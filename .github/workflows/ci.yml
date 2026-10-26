@@ -31,6 +31,13 @@ jobs:
             tests/ios-camera-zoom/main.swift \
             -o "${RUNNER_TEMP}/pam-media-ios-camera-zoom-contracts"
           "${RUNNER_TEMP}/pam-media-ios-camera-zoom-contracts"
+      - name: Run Swift camera session contracts
+        run: |
+          xcrun swiftc \
+            ios/Sources/CameraSessionGate.swift \
+            tests/ios-camera-session/main.swift \
+            -o "${RUNNER_TEMP}/pam-media-ios-camera-session-contracts"
+          "${RUNNER_TEMP}/pam-media-ios-camera-session-contracts"
 
   php:
     runs-on: ubuntu-24.04

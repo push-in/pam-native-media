@@ -32,7 +32,13 @@ private final class CameraPreview:UIView,AVCapturePhotoCaptureDelegate,AVCapture
     private var pinchStart: Double?
     private var hardwareZoom: (minimum: Double, maximum: Double)?
     private var facing:Int64=1;private var mode:Int64=1;private var flash:Int64=1;private var enabled=true;private var audioEnabled=true;private var captureRevision:Int64=0;private var recordRevision:Int64=0;private var stopRevision:Int64=0;private var maxDuration:Int64=60;private var configured=false;private var recordingStartedAt=Date()
-    init(emit:@escaping(Data)->Void){self.emit=emit;super.init(frame:.zero);preview.videoGravity = .resizeAspectFill;layer.addSublayer(preview);authorize()}
+    init(emit:@escaping(Data)->Void){self.emit=emit;super.init(frame:.zero);preview.videoGravity = .resizeAspectFill;layer.addSublayer(preview)}
+    /// Queue-only: the last `enabled` the session follows (see `CameraSessionGate`).
+    private var sessionWanted = false
+    /// Queue-only: the session is configured (running or starting).
+    private var sessionActive = false
+    /// Main-thread mirror of `enabled` already handed to the queue.
+    private var requestedEnabled: Bool?
     required init?(coder:NSCoder){nil}
     override func layoutSubviews(){super.layoutSubviews();preview.frame=bounds}
     func update(_ v: [String: WireValue]) {
@@ -58,7 +64,7 @@ private final class CameraPreview:UIView,AVCapturePhotoCaptureDelegate,AVCapture
         let previousZoomReset = zoomResetRevision
         zoomResetRevision = nextZoomReset
         updateGestures()
-        if !enabled { queue.async { self.stopRecording() } }
+        syncSession()
         // A native double-tap flip owns `facing` until the host requests a different lens.
         var reconfigure = false
         if nextFacing != requestedFacing {
@@ -200,8 +206,43 @@ private final class CameraPreview:UIView,AVCapturePhotoCaptureDelegate,AVCapture
             // Zoom is optional; capture keeps working when the device cannot be locked.
         }
     }
-    private func authorize(){switch AVCaptureDevice.authorizationStatus(for:.video){case.authorized:queue.async{self.configure()};case.notDetermined:AVCaptureDevice.requestAccess(for:.video){granted in if granted{self.queue.async{self.configure()}}else{self.send(["event":.integer(5),"message":.text("Camera permission was denied")])}};default:send(["event":.integer(5),"message":.text("Camera permission is required")])}}
-    private func configure(){guard !released else{return};stopRecording();if session.isRunning{session.stopRunning()};session.beginConfiguration();session.inputs.forEach(session.removeInput);session.outputs.forEach(session.removeOutput);session.sessionPreset = .high;do{let position:AVCaptureDevice.Position=facing==2 ? .front:.back;guard let device=AVCaptureDevice.default(.builtInWideAngleCamera,for:.video,position:position)else{throw CameraError.unavailable};let input=try AVCaptureDeviceInput(device:device);guard session.canAddInput(input)else{throw CameraError.configuration};session.addInput(input);if mode != 1,audioEnabled,AVCaptureDevice.authorizationStatus(for:.audio) == .authorized,let microphone=AVCaptureDevice.default(for:.audio){let audio=try AVCaptureDeviceInput(device:microphone);if session.canAddInput(audio){session.addInput(audio)}};if mode != 2{guard session.canAddOutput(photos)else{throw CameraError.configuration};session.addOutput(photos)};if mode != 1{if session.canAddOutput(movies){session.addOutput(movies);movies.maxRecordedDuration=CMTime(seconds:Double(maxDuration),preferredTimescale:600);if let connection=movies.connection(with:.video),connection.isVideoOrientationSupported{connection.videoOrientation = .portrait}}else if mode==2{throw CameraError.configuration}};session.commitConfiguration();configured=true;session.startRunning();sendReady(device)}catch{session.commitConfiguration();failure(String(describing:error))}}
+    /// Main thread: hands `enabled` to the camera queue (only when it changed).
+    private func syncSession() {
+        guard requestedEnabled != enabled else { return }
+        requestedEnabled = enabled
+        let wanted = enabled
+        queue.async { self.applySession(wanted: wanted) }
+    }
+
+    /// Queue-only: start (authorize + configure) or stop the session.
+    private func applySession(wanted: Bool) {
+        sessionWanted = wanted
+        if !wanted { stopRecording() }
+        let recording = recordingURL != nil || movies.isRecording
+        switch CameraSessionGate.action(enabled: wanted, released: released, active: sessionActive, recording: recording) {
+        case .start: authorize()
+        case .stop: teardownSession()
+        case .none: break
+        }
+    }
+
+    /// Queue-only: stops the session and frees the device, its inputs and the
+    /// photo/movie outputs, so the camera indicator turns off at once.
+    private func teardownSession() {
+        recordingZoom.cancel()
+        applyTorch(false)
+        if session.isRunning { session.stopRunning() }
+        session.beginConfiguration()
+        session.inputs.forEach(session.removeInput)
+        session.outputs.forEach(session.removeOutput)
+        session.commitConfiguration()
+        sessionActive = false
+        configured = false
+        DispatchQueue.main.async { self.hardwareZoom = nil; self.pinchStart = nil }
+    }
+
+    private func authorize(){sessionActive=true;switch AVCaptureDevice.authorizationStatus(for:.video){case.authorized:configure();case.notDetermined:AVCaptureDevice.requestAccess(for:.video){granted in if granted{self.queue.async{self.configure()}}else{self.queue.async{self.sessionActive=false};self.send(["event":.integer(5),"message":.text("Camera permission was denied")])}};default:sessionActive=false;send(["event":.integer(5),"message":.text("Camera permission is required")])}}
+    private func configure(){guard !released,sessionWanted else{sessionActive=configured;return};sessionActive=true;stopRecording();if session.isRunning{session.stopRunning()};session.beginConfiguration();session.inputs.forEach(session.removeInput);session.outputs.forEach(session.removeOutput);session.sessionPreset = .high;do{let position:AVCaptureDevice.Position=facing==2 ? .front:.back;guard let device=AVCaptureDevice.default(.builtInWideAngleCamera,for:.video,position:position)else{throw CameraError.unavailable};let input=try AVCaptureDeviceInput(device:device);guard session.canAddInput(input)else{throw CameraError.configuration};session.addInput(input);if mode != 1,audioEnabled,AVCaptureDevice.authorizationStatus(for:.audio) == .authorized,let microphone=AVCaptureDevice.default(for:.audio){let audio=try AVCaptureDeviceInput(device:microphone);if session.canAddInput(audio){session.addInput(audio)}};if mode != 2{guard session.canAddOutput(photos)else{throw CameraError.configuration};session.addOutput(photos)};if mode != 1{if session.canAddOutput(movies){session.addOutput(movies);movies.maxRecordedDuration=CMTime(seconds:Double(maxDuration),preferredTimescale:600);if let connection=movies.connection(with:.video),connection.isVideoOrientationSupported{connection.videoOrientation = .portrait}}else if mode==2{throw CameraError.configuration}};session.commitConfiguration();configured=true;session.startRunning();sendReady(device)}catch{session.commitConfiguration();sessionActive=false;failure(String(describing:error))}}
     /// Queue-only: Ready carries the lens and its effective zoom range (re-sent after every lens change).
     private func sendReady(_ device: AVCaptureDevice) {
         let range = Self.zoomRange(device, maxZoom)
@@ -256,6 +297,8 @@ private final class CameraPreview:UIView,AVCapturePhotoCaptureDelegate,AVCapture
             self.recordingZoom.reset()
             self.applyTorch(false)
             guard !self.released else { return }
+            // Disabled while recording: the clip is delivered, then the camera turns off.
+            defer { if !self.sessionWanted { self.teardownSession() } }
             if let error, (error as NSError).userInfo[AVErrorRecordingSuccessfullyFinishedKey] as? Bool != true {
                 self.failure(error.localizedDescription)
                 return
@@ -273,10 +316,13 @@ private final class CameraPreview:UIView,AVCapturePhotoCaptureDelegate,AVCapture
         updateGestures()
         hardwareZoom = nil
         queue.async {
+            self.sessionWanted = false
             self.stopRecording()
             if self.session.isRunning { self.session.stopRunning() }
             self.session.inputs.forEach(self.session.removeInput)
             self.session.outputs.forEach(self.session.removeOutput)
+            self.sessionActive = false
+            self.configured = false
         }
     }
     deinit {
@@ -287,6 +333,8 @@ private final class CameraPreview:UIView,AVCapturePhotoCaptureDelegate,AVCapture
             zoom.reset()
             if movies.isRecording { movies.stopRecording() }
             if session.isRunning { session.stopRunning() }
+            session.inputs.forEach(session.removeInput)
+            session.outputs.forEach(session.removeOutput)
         }
     }
 }
