@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.1 - 2026-10-26
+
+- iOS: `CameraViewFactory` compiles again with Xcode 26. Inside the
+  `Dictionary` helper, `max(1, v)` resolved to the instance method
+  `Sequence.max` instead of the global function, so every app that linked the
+  plugin failed to build for iOS. The clamps now call `Swift.max` explicitly.
+  Verified in the 24-plugin iOS certification package (iPhone 17 Pro
+  Simulator, iOS 26.5). No API, protocol or Android change.
+
 ## 0.6.0 - 2026-10-14
 
 - Add opt-in native pinch zoom to `CameraView` (`pinchZoom()`, property

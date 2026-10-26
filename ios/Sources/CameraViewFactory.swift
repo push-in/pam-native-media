@@ -290,5 +290,5 @@ private final class CameraPreview:UIView,AVCapturePhotoCaptureDelegate,AVCapture
         }
     }
 }
-private extension Dictionary where Key==String,Value==WireValue{func decimal(_ k:String,_ f:Double)->Double{switch self[k]{case let .decimal(v)?:return v.isFinite ? max(1,v):f;case let .integer(v)?:return max(1,Double(v));default:return f}};func integer(_ k:String,_ f:Int64)->Int64{if case let.integer(v)?=self[k]{return v};return f};func flag(_ k:String,_ f:Bool)->Bool{if case let.flag(v)?=self[k]{return v};return f}}
+private extension Dictionary where Key==String,Value==WireValue{func decimal(_ k:String,_ f:Double)->Double{switch self[k]{case let .decimal(v)?:return v.isFinite ? Swift.max(1,v):f;case let .integer(v)?:return Swift.max(1,Double(v));default:return f}};func integer(_ k:String,_ f:Int64)->Int64{if case let.integer(v)?=self[k]{return v};return f};func flag(_ k:String,_ f:Bool)->Bool{if case let.flag(v)?=self[k]{return v};return f}}
 private enum CameraError:Error{case unavailable;case configuration}
