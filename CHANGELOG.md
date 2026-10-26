@@ -6,8 +6,13 @@
   the camera on its permission) never bound the camera when `enabled` turned
   true: black preview and no camera client in `dumpsys media.camera`. Enabling
   now binds; disabling (outside a recording) unbinds, so a hidden camera does
-  not keep the device open. iOS keeps its session running while disabled
-  (unchanged; verify on an iPhone).
+  not keep the device open.
+- iOS `CameraView` follows the same rule: the capture session starts only
+  when `enabled` is true (the permission prompt waits for it too) and
+  `enabled=false` stops the session and removes its inputs and photo/movie
+  outputs, so the camera indicator turns off. A recording in progress is
+  finished and delivered first. Released and deallocated views also free
+  their inputs and outputs. Contract: `tests/ios-camera-session`.
 
 ## 0.6.1 - 2026-10-26
 
