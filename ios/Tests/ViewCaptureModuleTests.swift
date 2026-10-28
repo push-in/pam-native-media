@@ -1,6 +1,7 @@
 import UIKit
 import XCTest
 @testable import PamNativeMedia
+@testable import PamNative
 
 /// ViewCapture (1.37.0); requires an iOS test destination (not executable on Linux).
 @MainActor

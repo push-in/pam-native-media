@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.1 - 2026-10-28
+
+- iOS tests: the media library and view capture tests import the PamNative
+  core with `@testable`, since they exercise core helpers (`WireMap`,
+  `PamPhotoAssetURI`, `FilesModule`) that stay internal; the plugin tests
+  did not compile as their own Swift module. No change to the plugin code.
+
 ## 0.7.0
 
 - Owns the optional media library and capture capability extracted from the 1.46 core.

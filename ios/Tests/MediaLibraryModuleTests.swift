@@ -1,5 +1,6 @@
 import XCTest
 @testable import PamNativeMedia
+@testable import PamNative
 
 final class MediaLibraryModuleTests: XCTestCase {
     func testPhotoAssetURIRoundTripsOpaqueLocalIdentifiers() {
