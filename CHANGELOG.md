@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.2 - 2026-10-28
 
 - Android `CameraView`: a view created with `enabled=false` (hosts that gate
   the camera on its permission) never bound the camera when `enabled` turned
