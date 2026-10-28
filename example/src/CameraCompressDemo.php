@@ -37,7 +37,7 @@ use Pam\Native\UI\View;
 
 /**
  * Capture a photo or a video with the embedded camera, then prepare it for
- * upload: photos become a 1920 px WebP (Zé Chat's outbox rule), videos a
+ * upload: photos become a 1920 px WebP (real-world app's outbox rule), videos a
  * 720p fast-start MP4 with a thumbnail.
  */
 final class CameraCompressDemo extends Component

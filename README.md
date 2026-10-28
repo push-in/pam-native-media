@@ -394,3 +394,10 @@ This package targets PAM Native `>=1.0.35 <2.0.0`, Android API 26+, and iOS 15+ 
 - [Report an issue](https://github.com/push-in/pam-native-media/issues)
 
 Security vulnerabilities should be reported through the repository security policy or GitHub private vulnerability reporting, not a public issue.
+
+
+## Core extraction (1.46)
+
+Requires `pushinbr/pam-native` ^1.46. Install with `composer require pushinbr/pam-native-media`.
+The core keeps deprecated PHP aliases through 1.46; they are removed in 1.47.
+Native wire contracts are retained. Swift compilation and device QA remain pending.

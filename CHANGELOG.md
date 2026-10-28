@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.0
+
+- Owns the optional media library and capture capability extracted from the 1.46 core.
+- Preserves PHP aliases and native contracts during migration.
+
+
 ## 0.6.2 - 2026-10-28
 
 - Android `CameraView`: a view created with `enabled=false` (hosts that gate

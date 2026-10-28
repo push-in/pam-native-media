@@ -1,0 +1,36 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Pam\Native\Media;
+
+final readonly class MediaAsset
+{
+    public function __construct(
+        public string $id,
+        public string $uri,
+        public string $name,
+        public string $mimeType,
+        public int $width,
+        public int $height,
+        public int $durationMs,
+        public int $size,
+        public int $createdAt,
+        public int $modifiedAt,
+        public string $albumId,
+        public string $albumTitle,
+        public bool $favorite,
+        /**
+         * Source for a grid cell: an `Image` with it decodes at the view
+         * size from the platform thumbnail cache (videos: a frame). Empty
+         * when the host does not report one; use `uri` then.
+         */
+        public string $thumbnailUri = '',
+    ) {
+    }
+
+    public function video(): bool
+    {
+        return str_starts_with($this->mimeType, 'video/');
+    }
+}
