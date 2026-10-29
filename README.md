@@ -361,11 +361,12 @@ video URL), `size(int $maxWidth, int $maxHeight)` (1–8192), `at(int $timeMilli
 `pinchZoom(bool = true)`, `maxZoom(float)` (finite, >= 1, default 16),
 `zoomResetRevision(int)`, `doubleTapFlip(bool = true)`,
 `doubleTapEvents(bool = true)`,
+`tapToFocus(bool = true)`, `focusAt(float $x, float $y, int $revision)` (Android),
 `onEvent(Closure(CameraEventKind, ?CameraCapture, string $message, ?CameraLens $lens))`,
 `toElement()` (a `CustomView` of kind `media.camera`). Each revision bump runs
 its command once. `CameraCapture` (readonly): `path`, `mimeType`, `width`,
 `height`, `durationMillis`. `CameraLens` (readonly, `Ready`/`DoubleTap` only):
-`facing`, `minZoom`, `maxZoom` (`0` when not known yet).
+`facing`, `minZoom`, `maxZoom` (`0` when not known yet), `hasFlash` (Android; defaults to false for legacy hosts).
 
 ### Value types and enums (int-backed)
 
