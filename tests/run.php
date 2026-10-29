@@ -112,11 +112,37 @@ $test('gesture zoom is wired on both platforms', static function (): void {
             throw new RuntimeException("$key is not handled on both platforms");
         }
     }
-    if (!str_contains($android, 'ScaleGestureDetector') || !str_contains($android, 'recordingZoom.cancel()') || !str_contains($android, 'tapDetector=null')) {
+    if (!str_contains($android, 'ScaleGestureDetector') || !str_contains($android, 'recordingZoom.cancel()') || !str_contains($android, 'clearTapDetector()')) {
         throw new RuntimeException('Android pinch does not take over the recording ramp or leaks detectors');
     }
     if (!str_contains($ios, 'UIPinchGestureRecognizer') || !str_contains($ios, 'removeGestureRecognizer') || !str_contains($ios, 'self.recordingZoom.cancel()')) {
         throw new RuntimeException('iOS pinch does not take over the recording ramp or detach recognizers');
     }
+});
+$test('Android focus builders are opt-in immutable and validate normalized points', static function (): void {
+    $props = static fn (CameraView $v): array => Wire::decodeMap($v->toElement()->properties()[Pam\Native\PropKey::HostProperties->value]->bytes);
+    $base = CameraView::make();
+    $active = $props($base->tapToFocus()->focusAt(0.25, 0.75, 2));
+    if ($props($base)['tapToFocus'] !== false || $props($base)['focusRevision'] !== 0 || $active['tapToFocus'] !== true
+        || $active['focusX'] !== 0.25 || $active['focusY'] !== 0.75 || $active['focusRevision'] !== 2) {
+        throw new RuntimeException('Focus wire contract mismatch or builder mutated');
+    }
+    foreach ([[NAN, 0.5, 1], [0.5, INF, 1], [-0.1, 0.5, 1], [0.5, 1.1, 1], [0.5, 0.5, 0]] as [$x, $y, $revision]) {
+        try { $base->focusAt($x, $y, $revision); throw new RuntimeException('Invalid focus accepted'); }
+        catch (InvalidArgumentException) {}
+    }
+    $props($base->focusAt(0.0, 1.0, 1));
+});
+$test('Ready exposes flash capabilities and legacy hosts remain compatible', static function (): void {
+    $seen = [];
+    $emit = CameraView::make()->onEvent(static function ($kind, $capture, $message, $lens) use (&$seen): void { $seen[] = $lens; })
+        ->toElement()->events()[Pam\Native\EventKind::Native->value];
+    $emit(Wire::map(['event'=>1, 'hasFlash'=>true, 'minZoom'=>0.5, 'maxZoom'=>8.0]));
+    $emit(Wire::map(['event'=>1, 'hasFlash'=>false, 'minZoom'=>1.0, 'maxZoom'=>4.0]));
+    $emit(Wire::map(['event'=>1]));
+    if (!$seen[0]->hasFlash || $seen[0]->minZoom !== 0.5 || $seen[0]->maxZoom !== 8.0 || $seen[1]->hasFlash || $seen[2]->hasFlash) {
+        throw new RuntimeException('Flash and zoom capabilities mismatch');
+    }
+    if ((new Pam\Native\Media\CameraLens(CameraFacing::Back, 1.0, 8.0))->hasFlash) throw new RuntimeException('Legacy lens construction changed');
 });
 $failed=0;foreach($tests as$n=>$f){try{$f();fwrite(STDOUT,"PASS $n\n");}catch(Throwable$e){$failed++;fwrite(STDERR,"FAIL $n: {$e->getMessage()}\n");}}fwrite(STDOUT,count($tests)." tests, $failed failures\n");exit($failed?1:0);

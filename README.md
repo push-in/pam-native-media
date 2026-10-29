@@ -205,6 +205,41 @@ Direct `media.camera` hosts use the additive `pinchZoom`, `doubleTapFlip`,
 Platform support: Android API 26+, iOS 15+, PAM Native `>=1.0.35 <2.0.0`.
 
 
+## Foco e recorte da câmera no Android (0.7.2)
+
+```php
+$camera = CameraView::make()
+    ->tapToFocus()                  // toque simples confirmado: foco + medição AF/AE/AWB
+    ->focusAt(0.25, 0.75, $revision) // comando opcional; incremente a revisão positiva
+    ->onEvent(function (CameraEventKind $event, ?CameraCapture $capture, string $message, ?CameraLens $lens): void {
+        if ($event === CameraEventKind::Ready) {
+            // $lens->hasFlash, $lens->minZoom e $lens->maxZoom
+        }
+    });
+```
+
+`focusAt()` recebe coordenadas normalizadas entre 0 e 1 relativas ao preview
+visível. CameraX aplica rotação, espelhamento e crop. A revisão crescente executa
+uma vez, inclusive no primeiro render; o preview deve estar pronto e habilitado.
+Valores inválidos lançam `InvalidArgumentException`. Falhas nativas chegam em
+`Failure`; lentes sem suporte à medição ignoram a solicitação. A medição expira
+automaticamente após cinco segundos. `tapToFocus` vem desligado e compartilha o
+detector com o toque duplo; não envia os quadros do gesto ao PHP. Desabilitar ou
+liberar a câmera remove os detectores e libera a sessão existente.
+
+O Android mantém `PreviewView.PERFORMANCE` para superfícies sem recorte. Se o
+host ou um ancestral tiver outline arredondado ou `clipToOutline`, usa
+`COMPATIBLE` (TextureView), respeitando o raio definido pelo layout, inclusive 18.
+A troca solicita uma nova superfície sem refazer o bind nem parar a gravação.
+
+`Ready` informa `hasFlash` da lente ativa e os limites efetivos de zoom, já
+limitados por `maxZoom()`. Hosts antigos omitem `hasFlash`, interpretado como
+`false`; o construtor de `CameraLens` continua aceitando três argumentos.
+Essas adições de foco e flash estão implementadas **somente no Android** nesta
+versão; iOS mantém o comportamento anterior e informa `hasFlash=false` no PHP.
+Hosts diretos usam `tapToFocus` (bool), `focusX`/`focusY` (decimais normalizados)
+e `focusRevision` (inteiro positivo).
+
 ## What installation does
 
 `pam add media` (or `pam composer require pushinbr/pam-native-media` followed by `pam doctor --fix`) resolves the official compatible package, performs a non-mutating Composer preflight, updates the normal `composer.json` and `composer.lock`, refreshes generated native integration when required, and leaves the project ready for `pam doctor` validation. The package is a PAM Native plugin (module `media`, view `media.camera`); nothing is added to `pam-native.json`.

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.2 - 2026-10-29
+
+- Android: foco por toque opcional e comando PHP `focusAt()` com medição AF/AE/AWB.
+- Android: preview COMPATIBLE quando o host ou ancestral exige recorte arredondado.
+- Android: `Ready` informa `hasFlash` junto aos limites efetivos de zoom; PHP preserva hosts antigos.
+- Contratos PHP e JVM para coordenadas, revisões e capacidades.
+
+
 ## 0.7.1 - 2026-10-28
 
 - iOS tests: the media library and view capture tests import the PamNative
