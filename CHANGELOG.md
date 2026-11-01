@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.3 - 2026-11-01
+
+- iOS: `Ready` informa `hasFlash` e `hasTorch` da lente ativa (`AVCaptureDevice`), de novo a cada troca de lente.
+- Android: `Ready` informa `hasTorch` (= unidade de flash, `FLASH_INFO_AVAILABLE`).
+- PHP: `CameraLens::$hasTorch` (false para hosts antigos).
+
 ## 0.7.2 - 2026-10-29
 
 - Android: foco por toque opcional e comando PHP `focusAt()` com medição AF/AE/AWB.
