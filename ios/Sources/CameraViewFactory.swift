@@ -243,7 +243,7 @@ private final class CameraPreview:UIView,AVCapturePhotoCaptureDelegate,AVCapture
 
     private func authorize(){sessionActive=true;switch AVCaptureDevice.authorizationStatus(for:.video){case.authorized:configure();case.notDetermined:AVCaptureDevice.requestAccess(for:.video){granted in if granted{self.queue.async{self.configure()}}else{self.queue.async{self.sessionActive=false};self.send(["event":.integer(5),"message":.text("Camera permission was denied")])}};default:sessionActive=false;send(["event":.integer(5),"message":.text("Camera permission is required")])}}
     private func configure(){guard !released,sessionWanted else{sessionActive=configured;return};sessionActive=true;stopRecording();if session.isRunning{session.stopRunning()};session.beginConfiguration();session.inputs.forEach(session.removeInput);session.outputs.forEach(session.removeOutput);session.sessionPreset = .high;do{let position:AVCaptureDevice.Position=facing==2 ? .front:.back;guard let device=AVCaptureDevice.default(.builtInWideAngleCamera,for:.video,position:position)else{throw CameraError.unavailable};let input=try AVCaptureDeviceInput(device:device);guard session.canAddInput(input)else{throw CameraError.configuration};session.addInput(input);if mode != 1,audioEnabled,AVCaptureDevice.authorizationStatus(for:.audio) == .authorized,let microphone=AVCaptureDevice.default(for:.audio){let audio=try AVCaptureDeviceInput(device:microphone);if session.canAddInput(audio){session.addInput(audio)}};if mode != 2{guard session.canAddOutput(photos)else{throw CameraError.configuration};session.addOutput(photos)};if mode != 1{if session.canAddOutput(movies){session.addOutput(movies);movies.maxRecordedDuration=CMTime(seconds:Double(maxDuration),preferredTimescale:600);if let connection=movies.connection(with:.video),connection.isVideoOrientationSupported{connection.videoOrientation = .portrait}}else if mode==2{throw CameraError.configuration}};session.commitConfiguration();configured=true;session.startRunning();sendReady(device)}catch{session.commitConfiguration();sessionActive=false;failure(String(describing:error))}}
-    /// Queue-only: Ready carries the lens and its effective zoom range (re-sent after every lens change).
+    /// Queue-only: Ready carries the lens, its flash/torch and its effective zoom range (re-sent after every lens change).
     private func sendReady(_ device: AVCaptureDevice) {
         let range = Self.zoomRange(device, maxZoom)
         let hardware = (minimum: Double(device.minAvailableVideoZoomFactor),
@@ -253,7 +253,9 @@ private final class CameraPreview:UIView,AVCapturePhotoCaptureDelegate,AVCapture
             self.hardwareZoom = hardware
             self.pinchStart = nil
         }
-        send(["event": .integer(1), "facing": .integer(lens), "minZoom": .decimal(range.minimum), "maxZoom": .decimal(range.maximum)])
+        // hasFlash/hasTorch of the active lens (re-sent with every lens change).
+        send(["event": .integer(1), "facing": .integer(lens), "hasFlash": .flag(device.hasFlash),
+              "hasTorch": .flag(device.hasTorch), "minZoom": .decimal(range.minimum), "maxZoom": .decimal(range.maximum)])
     }
     private func photo(){guard configured,enabled else{return};let settings=AVCapturePhotoSettings();if photos.supportedFlashModes.contains(nativeFlash()){settings.flashMode=nativeFlash()};photos.capturePhoto(with:settings,delegate:self)}
     func photoOutput(_ output:AVCapturePhotoOutput,didFinishProcessingPhoto photo:AVCapturePhoto,error:Error?){if let error{failure(error.localizedDescription);return};guard let data=photo.fileDataRepresentation()else{failure("Photo encoding failed");return};do{let url=try captureURL("jpg");try data.write(to:url,options:.atomic);sendCapture(2,url,"image/jpeg",0)}catch{failure(error.localizedDescription)}}

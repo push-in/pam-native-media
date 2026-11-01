@@ -137,10 +137,10 @@ $test('Ready exposes flash capabilities and legacy hosts remain compatible', sta
     $seen = [];
     $emit = CameraView::make()->onEvent(static function ($kind, $capture, $message, $lens) use (&$seen): void { $seen[] = $lens; })
         ->toElement()->events()[Pam\Native\EventKind::Native->value];
-    $emit(Wire::map(['event'=>1, 'hasFlash'=>true, 'minZoom'=>0.5, 'maxZoom'=>8.0]));
+    $emit(Wire::map(['event'=>1, 'hasFlash'=>true, 'hasTorch'=>true, 'minZoom'=>0.5, 'maxZoom'=>8.0]));
     $emit(Wire::map(['event'=>1, 'hasFlash'=>false, 'minZoom'=>1.0, 'maxZoom'=>4.0]));
     $emit(Wire::map(['event'=>1]));
-    if (!$seen[0]->hasFlash || $seen[0]->minZoom !== 0.5 || $seen[0]->maxZoom !== 8.0 || $seen[1]->hasFlash || $seen[2]->hasFlash) {
+    if (!$seen[0]->hasFlash || $seen[0]->minZoom !== 0.5 || $seen[0]->maxZoom !== 8.0 || !$seen[0]->hasTorch || $seen[1]->hasFlash || $seen[1]->hasTorch || $seen[2]->hasFlash || $seen[2]->hasTorch) {
         throw new RuntimeException('Flash and zoom capabilities mismatch');
     }
     if ((new Pam\Native\Media\CameraLens(CameraFacing::Back, 1.0, 8.0))->hasFlash) throw new RuntimeException('Legacy lens construction changed');

@@ -213,7 +213,7 @@ $camera = CameraView::make()
     ->focusAt(0.25, 0.75, $revision) // comando opcional; incremente a revisão positiva
     ->onEvent(function (CameraEventKind $event, ?CameraCapture $capture, string $message, ?CameraLens $lens): void {
         if ($event === CameraEventKind::Ready) {
-            // $lens->hasFlash, $lens->minZoom e $lens->maxZoom
+            // $lens->hasFlash, $lens->hasTorch, $lens->minZoom e $lens->maxZoom
         }
     });
 ```
@@ -232,11 +232,12 @@ host ou um ancestral tiver outline arredondado ou `clipToOutline`, usa
 `COMPATIBLE` (TextureView), respeitando o raio definido pelo layout, inclusive 18.
 A troca solicita uma nova superfície sem refazer o bind nem parar a gravação.
 
-`Ready` informa `hasFlash` da lente ativa e os limites efetivos de zoom, já
-limitados por `maxZoom()`. Hosts antigos omitem `hasFlash`, interpretado como
+`Ready` informa `hasFlash` e `hasTorch` da lente ativa (de novo a cada troca de
+lente) e os limites efetivos de zoom, já
+limitados por `maxZoom()`. Hosts antigos omitem `hasFlash`/`hasTorch`, interpretados como
 `false`; o construtor de `CameraLens` continua aceitando três argumentos.
-Essas adições de foco e flash estão implementadas **somente no Android** nesta
-versão; iOS mantém o comportamento anterior e informa `hasFlash=false` no PHP.
+O foco por toque está implementado **somente no Android**; `hasFlash`/`hasTorch`
+vêm nas duas plataformas desde a 0.7.3.
 Hosts diretos usam `tapToFocus` (bool), `focusX`/`focusY` (decimais normalizados)
 e `focusRevision` (inteiro positivo).
 
@@ -366,7 +367,7 @@ video URL), `size(int $maxWidth, int $maxHeight)` (1–8192), `at(int $timeMilli
 `toElement()` (a `CustomView` of kind `media.camera`). Each revision bump runs
 its command once. `CameraCapture` (readonly): `path`, `mimeType`, `width`,
 `height`, `durationMillis`. `CameraLens` (readonly, `Ready`/`DoubleTap` only):
-`facing`, `minZoom`, `maxZoom` (`0` when not known yet), `hasFlash` (Android; defaults to false for legacy hosts).
+`facing`, `minZoom`, `maxZoom` (`0` when not known yet), `hasFlash`, `hasTorch` (Android `CameraInfo.hasFlashUnit()`, iOS `AVCaptureDevice.hasFlash`/`hasTorch`; false for legacy hosts).
 
 ### Value types and enums (int-backed)
 
