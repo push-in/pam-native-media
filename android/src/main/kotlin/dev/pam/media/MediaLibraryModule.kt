@@ -263,11 +263,10 @@ class MediaLibraryModule(private val context: Context) : NativeModule, AutoClose
             putInt(ContentResolverArgs.LIMIT, limit + 1)
             putInt(ContentResolverArgs.OFFSET, offset)
         }
-        context.contentResolver.query(
-            collection(),
+        queryCompat(
             assetProjection(),
             query,
-            null,
+            "${recentSortOrder()} LIMIT ${limit + 1} OFFSET $offset",
         )?.use { cursor ->
             while (cursor.moveToNext() && rows.length() < limit + 1) {
                 rows.put(asset(cursor))
@@ -283,6 +282,24 @@ class MediaLibraryModule(private val context: Context) : NativeModule, AutoClose
         ))
     }
 
+    /**
+     * The Bundle query is API 26+. Android 7.x passes the same selection and
+     * puts LIMIT/OFFSET in the sort order, which its SQLite MediaProvider
+     * appends verbatim.
+     */
+    private fun queryCompat(projection: Array<String>, query: Bundle, legacySortOrder: String): Cursor? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.contentResolver.query(collection(), projection, query, null)
+        } else {
+            context.contentResolver.query(
+                collection(),
+                projection,
+                query.getString(ContentResolverArgs.SQL_SELECTION),
+                query.getStringArray(ContentResolverArgs.SQL_SELECTION_ARGS),
+                legacySortOrder,
+            )
+        }
+
     private fun albums(payload: ByteArray): ByteArray {
         check(!closed.get()) { "Media-library module is closed" }
         val type = WireMap.decode(payload).integer("type", TYPE_MEDIA)
@@ -296,8 +313,7 @@ class MediaLibraryModule(private val context: Context) : NativeModule, AutoClose
             // sort order is honoured by every provider version.
             putString(ContentResolverArgs.SQL_SORT_ORDER, recentSortOrder())
         }
-        context.contentResolver.query(
-            collection(),
+        queryCompat(
             arrayOf(
                 MediaStore.MediaColumns._ID,
                 MediaStore.Files.FileColumns.MEDIA_TYPE,
@@ -305,7 +321,7 @@ class MediaLibraryModule(private val context: Context) : NativeModule, AutoClose
                 BUCKET_NAME,
             ),
             query,
-            null,
+            recentSortOrder(),
         )?.use { cursor ->
             while (cursor.moveToNext()) {
                 val id = cursor.long(MediaStore.MediaColumns._ID).toString()

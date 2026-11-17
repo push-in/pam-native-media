@@ -11,7 +11,7 @@
     },
     "android": {
         "namespace": "dev.pam.media",
-        "minSdk": 26,
+        "minSdk": 24,
         "permissions": [
             "android.permission.CAMERA",
             "android.permission.RECORD_AUDIO",

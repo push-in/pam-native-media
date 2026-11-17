@@ -63,7 +63,7 @@ Paths are relative to the PAM file sandbox; PHP never holds pixel data and outpu
 
 | Platform | Support | Notes |
 | --- | --- | --- |
-| Android | API 26+ | Media3 Transformer 1.10.1, CameraX 1.6.1, ExifInterface 1.4.2 |
+| Android | API 24+ | Media3 Transformer 1.10.1, CameraX 1.6.1, ExifInterface 1.4.2 |
 | iOS | 15.0+ | AVFoundation, ImageIO, Photos; transcode and image pipeline since 0.5, not yet validated on a device |
 | PAM Native | 1.46.0 to < 2.0.0 | From `pam-native.plugin.json`; PHP 8.5+ |
 

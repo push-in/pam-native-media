@@ -101,7 +101,7 @@ Direct `media.camera` hosts use the additive `pinchZoom`, `doubleTapFlip`,
 (integer) properties; events gain `facing` (integer) and `minZoom`/`maxZoom`
 (decimals). `onEvent` handlers with three parameters keep working.
 
-Platform support: Android API 26+, iOS 15+, PAM Native `>=1.0.35 <2.0.0`.
+Platform support: Android API 24+, iOS 15+, PAM Native `>=1.0.35 <2.0.0`.
 
 
 ## Android camera focus and clipping (0.7.2)
